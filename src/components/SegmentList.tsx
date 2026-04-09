@@ -45,7 +45,8 @@ export default function SegmentList({
     return project.segments
       .map((seg, idx) => ({ seg, idx }))
       .filter(({ seg }) => {
-        if (dateFilter.start && dateFilter.end && seg.date) {
+        if (dateFilter.start && dateFilter.end) {
+          if (!seg.date) return false; // no parsed date = exclude when filtering
           if (seg.date < dateFilter.start || seg.date > dateFilter.end) return false;
         }
         if (search) {
