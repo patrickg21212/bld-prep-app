@@ -1,0 +1,146 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  /* BLD Enterprise — Navy brand, light workspace */
+
+  /* Page background — warm grey, not white */
+  --bg-primary: #EBEEF3;
+  /* Input/nested backgrounds within cards */
+  --bg-secondary: #F4F6F9;
+  /* Hover states, subtle fills */
+  --bg-tertiary: #E2E6EC;
+  /* Cards and panels — pure white with elevation */
+  --bg-card: #FFFFFF;
+
+  /* Borders — strong definition */
+  --border: #8A9BB0;
+  --border-light: #A8B5C4;
+
+  /* Typography — high contrast on white */
+  --text-primary: #050D16;
+  --text-secondary: #162636;
+  --text-muted: #2E4252;
+
+  /* Interactive — navy brand for primary actions */
+  --accent: #142B47;
+  --accent-hover: #1C3A5F;
+  --accent-subtle: rgba(20, 43, 71, 0.06);
+
+  /* Status colors */
+  --success: #1B7A34;
+  --success-subtle: rgba(27, 122, 52, 0.08);
+  --warning: #B45309;
+  --danger: #C62828;
+  --danger-subtle: rgba(198, 40, 40, 0.06);
+
+  /* Navigation bar — dark navy */
+  --nav-bg: #0B1726;
+  --nav-border: #162840;
+  --nav-text: #FFFFFF;
+  --nav-text-muted: #7A94AE;
+
+  /* Elevation — shadows for depth */
+  --shadow-sm: 0 1px 3px rgba(10, 20, 35, 0.12), 0 1px 2px rgba(10, 20, 35, 0.06);
+  --shadow-md: 0 4px 12px rgba(10, 20, 35, 0.14), 0 2px 4px rgba(10, 20, 35, 0.08);
+  --shadow-lg: 0 8px 24px rgba(10, 20, 35, 0.16), 0 4px 8px rgba(10, 20, 35, 0.08);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+input, select, textarea, button {
+  font-family: inherit;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Utility classes */
+.min-h-screen { min-height: 100vh; }
+.hidden { display: none; }
+.flex { display: flex; }
+.grid { display: grid; }
+.block { display: block; }
+.inline { display: inline; }
+.items-center { align-items: center; }
+.items-start { align-items: flex-start; }
+.justify-between { justify-content: space-between; }
+.justify-center { justify-content: center; }
+.flex-col { flex-direction: column; }
+.gap-1 { gap: 0.25rem; }
+.gap-2 { gap: 0.5rem; }
+.gap-3 { gap: 0.75rem; }
+.gap-4 { gap: 1rem; }
+.gap-6 { gap: 1.5rem; }
+.gap-10 { gap: 2.5rem; }
+.gap-12 { gap: 3rem; }
+.gap-20 { gap: 5rem; }
+.ml-4 { margin-left: 1rem; }
+.ml-auto { margin-left: auto; }
+.mt-4 { margin-top: 1rem; }
+.mt-6 { margin-top: 1.5rem; }
+.mt-8 { margin-top: 2rem; }
+.mt-10 { margin-top: 2.5rem; }
+.mt-16 { margin-top: 4rem; }
+.mb-1 { margin-bottom: 0.25rem; }
+.mb-2 { margin-bottom: 0.5rem; }
+.mb-3 { margin-bottom: 0.75rem; }
+.mb-4 { margin-bottom: 1rem; }
+.mb-6 { margin-bottom: 1.5rem; }
+.mb-8 { margin-bottom: 2rem; }
+.mb-10 { margin-bottom: 2.5rem; }
+.p-6 { padding: 1.5rem; padding-bottom: 6rem; }
+.px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+.px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+.py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+.py-8 { padding-top: 2rem; padding-bottom: 2rem; }
+.pt-4 { padding-top: 1rem; }
+.pt-8 { padding-top: 2rem; }
+.max-w-lg { max-width: 32rem; }
+.max-w-2xl { max-width: 42rem; }
+.max-w-3xl { max-width: 48rem; }
+.max-w-4xl { max-width: 56rem; }
+.max-w-5xl { max-width: 64rem; }
+.mx-auto { margin-left: auto; margin-right: auto; }
+.w-full { width: 100%; }
+.flex-1 { flex: 1; }
+.min-w-0 { min-width: 0; }
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.uppercase { text-transform: uppercase; }
+.font-semibold { font-weight: 600; }
+.font-bold { font-weight: 700; }
+.text-sm { font-size: 0.875rem; }
+.text-base { font-size: 1rem; }
+.text-xl { font-size: 1.25rem; }
+.text-2xl { font-size: 1.5rem; }
+.text-3xl { font-size: 1.875rem; }
+.tracking-wide { letter-spacing: 0.025em; }
+.overflow-hidden { overflow: hidden; }
+.text-white { color: white; }
+.whitespace-nowrap { white-space: nowrap; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
