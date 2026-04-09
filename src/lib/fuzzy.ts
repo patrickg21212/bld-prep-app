@@ -4,12 +4,16 @@ import type { PrepField } from './types';
 // (e.g., "CCTV Length" should win over "Plan Length" for pipeLength)
 const PREFERRED_ALIASES: Partial<Record<PrepField, string[]>> = {
   pipeLength: ['cctv length', 'tv length', 'measured length', 'actual length'],
-  date: ['pre cctv date', 'cctv date', 'pre tv date', 'inspection date'],
+  date: ['pre cctv date', 'cctv date', 're cctv date', 'pre tv date', 'inspection date'],
 };
 
 // Candidate aliases for each field — lower-cased, normalized
 const FIELD_ALIASES: Record<PrepField, string[]> = {
-  date: ['pre cctv date', 'cctv date', 'inspection date', 'date', 'pre-tv date', 'tv date'],
+  date: [
+    'pre cctv date', 'cctv date', 're cctv date', 'recctv date',
+    'inspection date', 'date', 'pre-tv date', 'tv date',
+    'pre cctv', 're cctv', 'survey date', 'field date',
+  ],
   repairNumber: [
     'cwn item no', 'cwn item number', 'repair #', 'repair number', 'repair no',
     'psr', 'segment id', 'segment no', 'segment number', 'item no', 'item number',
