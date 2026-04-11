@@ -151,6 +151,7 @@ export function rowsToSegments(
       readyToLine,
       comments,
       pipeMaterial: get('pipeMaterial'),
+      sheetNumber: get('sheetNumber'),
       raw,
     });
   }

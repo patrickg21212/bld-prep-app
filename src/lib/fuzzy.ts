@@ -60,6 +60,10 @@ const FIELD_ALIASES: Record<PrepField, string[]> = {
     'existing pipe material', 'pipe material', 'material', 'pipe type',
     'existing material', 'pipe mat', 'lining material',
   ],
+  sheetNumber: [
+    'sheet no', 'sheet number', 'sheet #', 'sheet', 'drawing no',
+    'drawing number', 'dwg no', 'dwg', 'map no', 'map number', 'page',
+  ],
 };
 
 function normalize(s: string): string {

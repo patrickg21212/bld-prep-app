@@ -1,16 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import type { AppProject } from '../lib/types';
 
 interface Props {
   project: AppProject;
   initialJobNumber: string;
   initialJobName: string;
+  plansFileName: string | null;
+  onPlansUpload: (file: File) => void;
   onComplete: (jobNumber: string, jobName: string) => void;
 }
 
-export default function ProjectSettings({ project, initialJobNumber, initialJobName, onComplete }: Props) {
+export default function ProjectSettings({ project, initialJobNumber, initialJobName, plansFileName, onPlansUpload, onComplete }: Props) {
   const [jobNumber, setJobNumber] = useState(initialJobNumber);
   const [jobName, setJobName] = useState(initialJobName || project.name);
+  const plansInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +41,63 @@ export default function ProjectSettings({ project, initialJobNumber, initialJobN
         <div style={{ color: 'var(--text-secondary)', fontSize: 14, marginTop: 4 }}>
           {project.segments.length} segments detected
         </div>
+      </div>
+
+      {/* Plans PDF upload */}
+      <div style={{
+        background: 'var(--bg-card)', border: '1px solid var(--border)',
+        borderRadius: 8, padding: '14px 16px', marginBottom: 24,
+      }}>
+        <div style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 4, textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em' }}>
+          PROJECT PLANS / MAP (Optional)
+        </div>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 10 }}>
+          Upload the project plans PDF to enable click-to-crop map images for each segment.
+        </p>
+        {plansFileName ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{
+              background: 'rgba(63,185,80,0.1)', color: 'var(--success)',
+              borderRadius: 4, padding: '4px 10px', fontSize: 14, fontWeight: 600,
+            }}>
+              Loaded
+            </span>
+            <span style={{ color: 'var(--text-primary)', fontSize: 14 }}>{plansFileName}</span>
+            <button
+              type="button"
+              onClick={() => plansInputRef.current?.click()}
+              style={{
+                background: 'none', border: 'none', color: 'var(--accent)',
+                fontSize: 14, cursor: 'pointer', textDecoration: 'underline',
+              }}
+            >
+              Replace
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => plansInputRef.current?.click()}
+            style={{
+              background: 'var(--accent-subtle)', border: '1px dashed var(--accent)',
+              color: 'var(--accent)', borderRadius: 6, padding: '10px 20px',
+              fontSize: 14, fontWeight: 600, cursor: 'pointer', width: '100%',
+            }}
+          >
+            Upload Plans PDF
+          </button>
+        )}
+        <input
+          ref={plansInputRef}
+          type="file"
+          accept=".pdf"
+          style={{ display: 'none' }}
+          onChange={e => {
+            const file = e.target.files?.[0];
+            if (file) onPlansUpload(file);
+            e.target.value = '';
+          }}
+        />
       </div>
 
       <form onSubmit={handleSubmit}>

@@ -12,7 +12,7 @@ interface Props {
 const ALL_FIELDS: PrepField[] = [
   'repairNumber', 'date', 'pipeSize', 'pipeLength', 'streetName',
   'usDepth', 'dsDepth', 'mhFrom', 'mhTo', 'readyToLine',
-  'comments1', 'comments2', 'pipeMaterial',
+  'comments1', 'comments2', 'pipeMaterial', 'sheetNumber',
 ];
 
 const REQUIRED_FIELDS: PrepField[] = ['repairNumber', 'date', 'streetName'];

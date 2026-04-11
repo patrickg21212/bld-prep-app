@@ -1,11 +1,21 @@
 import Dexie, { type Table } from 'dexie';
 import type { ColumnMapping, SegmentDraft, ProjectDefaults, AppProject } from './types';
 
+interface ProjectPlans {
+  id?: number;
+  projectId: string;
+  pdfData: ArrayBuffer;
+  fileName: string;
+  numPages: number;
+  savedAt: number;
+}
+
 class BldDatabase extends Dexie {
   columnMappings!: Table<ColumnMapping, number>;
   segmentDrafts!: Table<SegmentDraft, number>;
   projectDefaults!: Table<ProjectDefaults, number>;
   projects!: Table<AppProject, string>;
+  projectPlans!: Table<ProjectPlans, number>;
 
   constructor() {
     super('BLDPrepSheet');
@@ -15,14 +25,18 @@ class BldDatabase extends Dexie {
       projectDefaults: '++id, projectId',
       projects: 'id, savedAt',
     });
-    // v2: added fallbacks to columnMappings, mapImageDataUrl/mapAnnotations to segmentDrafts
-    // Dexie only indexes listed fields; extra properties are stored fine without schema changes
-    // but we bump version to clear any corrupted state from prior sessions
     this.version(2).stores({
       columnMappings: '++id, fingerprint',
       segmentDrafts: '++id, [projectId+segmentId], projectId',
       projectDefaults: '++id, projectId',
       projects: 'id, savedAt',
+    });
+    this.version(3).stores({
+      columnMappings: '++id, fingerprint',
+      segmentDrafts: '++id, [projectId+segmentId], projectId',
+      projectDefaults: '++id, projectId',
+      projects: 'id, savedAt',
+      projectPlans: '++id, projectId',
     });
   }
 }
@@ -86,4 +100,18 @@ export async function saveProject(project: AppProject): Promise<void> {
 
 export async function getProject(id: string): Promise<AppProject | undefined> {
   return db.projects.get(id);
+}
+
+// Project plans helpers
+export async function savePlans(projectId: string, pdfData: ArrayBuffer, fileName: string, numPages: number): Promise<void> {
+  const existing = await db.projectPlans.where('projectId').equals(projectId).first();
+  if (existing?.id) {
+    await db.projectPlans.update(existing.id, { pdfData, fileName, numPages, savedAt: Date.now() });
+  } else {
+    await db.projectPlans.add({ projectId, pdfData, fileName, numPages, savedAt: Date.now() });
+  }
+}
+
+export async function getPlans(projectId: string): Promise<ProjectPlans | undefined> {
+  return db.projectPlans.where('projectId').equals(projectId).first();
 }

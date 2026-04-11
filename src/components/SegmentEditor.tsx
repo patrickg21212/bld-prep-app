@@ -1,6 +1,8 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, lazy, Suspense } from 'react';
 import type { Segment, SegmentObservations, TrafficLevel, WaterFlow, MhLocation, AnnotationData } from '../lib/types';
 import MapAnnotation from './MapAnnotation';
+
+const PlanViewer = lazy(() => import('./PlanViewer'));
 
 interface Props {
   segment: Segment;
@@ -13,6 +15,8 @@ interface Props {
   mapRawImageDataUrl: string | null;
   mapAnnotations: AnnotationData[];
   canCopyPrevious: boolean;
+  plansData: ArrayBuffer | null;
+  plansNumPages: number;
   onObservationChange: (obs: SegmentObservations) => void;
   onMapChange: (compositeUrl: string | null, rawUrl: string | null, annotations: AnnotationData[]) => void;
   onCopyPrevious: () => void;
@@ -31,15 +35,51 @@ export default function SegmentEditor({
   mapRawImageDataUrl,
   mapAnnotations,
   canCopyPrevious,
+  plansData,
+  plansNumPages,
   onObservationChange,
   onMapChange,
   onCopyPrevious,
   onPreviewPdf,
   onNavigate,
 }: Props) {
+  const [showPlanViewer, setShowPlanViewer] = useState(false);
+
   const set = useCallback(<K extends keyof SegmentObservations>(key: K, val: SegmentObservations[K]) => {
     onObservationChange({ ...observations, [key]: val });
   }, [observations, onObservationChange]);
+
+  // Parse sheet number from segment for auto-navigating to the right PDF page
+  const getSheetPage = (): number => {
+    const raw = segment.sheetNumber?.trim();
+    if (!raw) return 1;
+    // Handle formats like "9/10" (take first number), "9", "Sheet 9", etc.
+    const match = raw.match(/(\d+)/);
+    return match ? parseInt(match[1], 10) : 1;
+  };
+
+  const handlePlanCrop = useCallback((croppedDataUrl: string, relX: number, relY: number) => {
+    // Create an ellipse annotation at the click point
+    // Load the image to get dimensions for proper ellipse sizing
+    const img = new Image();
+    img.onload = () => {
+      const w = img.width;
+      const h = img.height;
+      const ellipse: AnnotationData = {
+        id: `ellipse-${Date.now()}`,
+        type: 'circle', // Konva Ellipse uses 'circle' type in our schema
+        x: relX * w,
+        y: relY * h,
+        radiusX: w * 0.15,  // Start with an oval shape
+        radiusY: w * 0.08,  // Wider than tall
+        stroke: '#ff0000',
+        strokeWidth: 3,
+      };
+      onMapChange(null, croppedDataUrl, [ellipse]);
+    };
+    img.src = croppedDataUrl;
+    setShowPlanViewer(false);
+  }, [onMapChange]);
 
   if (!segment) return null;
 
@@ -282,13 +322,61 @@ export default function SegmentEditor({
 
       {/* Map Annotation Section — full width below the two columns */}
       <div className="mt-6">
-        <SectionHeader>Schematic Drawing / Map</SectionHeader>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <SectionHeader>Schematic Drawing / Map</SectionHeader>
+          {plansData && (
+            <button
+              onClick={() => setShowPlanViewer(true)}
+              style={{
+                background: 'var(--accent-subtle)',
+                border: '1px solid var(--accent)',
+                color: 'var(--accent)',
+                borderRadius: 6,
+                padding: '6px 14px',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              Crop from Plans
+              {segment.sheetNumber && (
+                <span style={{ opacity: 0.7, fontSize: 13 }}>(Sheet {segment.sheetNumber})</span>
+              )}
+            </button>
+          )}
+        </div>
         <MapAnnotation
           initialImage={mapRawImageDataUrl ?? undefined}
           initialAnnotations={mapAnnotations}
           onChange={(compositeUrl, rawUrl, anns) => onMapChange(compositeUrl, rawUrl, anns)}
         />
       </div>
+
+      {/* PlanViewer modal */}
+      {showPlanViewer && plansData && (
+        <Suspense fallback={
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 100,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'white', fontSize: 16,
+          }}>
+            Loading plans viewer...
+          </div>
+        }>
+          <PlanViewer
+            pdfData={plansData}
+            initialPage={getSheetPage()}
+            totalPages={plansNumPages}
+            onCrop={handlePlanCrop}
+            onClose={() => setShowPlanViewer(false)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

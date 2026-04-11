@@ -4,7 +4,7 @@ import { DEFAULT_OBSERVATIONS } from '../lib/types';
 import { parseExcelFile, rowsToSegments, getWeekRanges, listSheets } from '../lib/excel';
 import type { SheetInfo } from '../lib/excel';
 import { autoMapColumns, fingerprintHeaders } from '../lib/fuzzy';
-import { db, getSavedMapping, saveMapping, saveDraft, getDraft, getProjectDefaults, saveProjectDefaults, getRecentProjects } from '../lib/db';
+import { db, getSavedMapping, saveMapping, saveDraft, getDraft, getProjectDefaults, saveProjectDefaults, getRecentProjects, savePlans, getPlans } from '../lib/db';
 
 import HomeScreen from './HomeScreen';
 import SheetPicker from './SheetPicker';
@@ -52,6 +52,9 @@ export default function App() {
   const [recentProjects, setRecentProjects] = useState<AppProject[]>([]);
   const [pendingFile, setPendingFile] = useState<PendingFile | null>(null);
   const [pendingMapping, setPendingMapping] = useState<PendingMapping | null>(null);
+  const [plansData, setPlansData] = useState<ArrayBuffer | null>(null);
+  const [plansFileName, setPlansFileName] = useState<string | null>(null);
+  const [plansNumPages, setPlansNumPages] = useState(0);
 
   // Refs to avoid stale closures
   const projectRef = useRef(project);
@@ -186,6 +189,29 @@ export default function App() {
     }
   }, []);
 
+  const handlePlansUpload = useCallback(async (file: File) => {
+    try {
+      const buffer = await file.arrayBuffer();
+      // Get page count using dynamic import to avoid SSR issues
+      const pdfjsLib = await import('pdfjs-dist');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+      const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+      const numPages = doc.numPages;
+
+      setPlansData(buffer);
+      setPlansFileName(file.name);
+      setPlansNumPages(numPages);
+
+      const proj = projectRef.current;
+      if (proj) {
+        await savePlans(proj.id, buffer, file.name, numPages);
+      }
+    } catch (err) {
+      console.error('[BLD] Plans upload error:', err);
+      alert('Error loading plans PDF: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  }, []);
+
   const handleSettingsComplete = useCallback(async (jn: string, jnm: string) => {
     const proj = projectRef.current;
     if (!proj) return;
@@ -276,6 +302,17 @@ export default function App() {
           annotations: draft.mapAnnotations ?? [],
         };
       }
+    }
+    // Load saved plans
+    const plans = await getPlans(proj.id);
+    if (plans) {
+      setPlansData(plans.pdfData);
+      setPlansFileName(plans.fileName);
+      setPlansNumPages(plans.numPages);
+    } else {
+      setPlansData(null);
+      setPlansFileName(null);
+      setPlansNumPages(0);
     }
     setProject(proj);
     setObservations(obs);
@@ -389,6 +426,8 @@ export default function App() {
             project={project}
             initialJobNumber={jobNumber}
             initialJobName={jobName}
+            plansFileName={plansFileName}
+            onPlansUpload={handlePlansUpload}
             onComplete={handleSettingsComplete}
           />
         )}
@@ -420,6 +459,8 @@ export default function App() {
             mapRawImageDataUrl={currentMap.rawImageDataUrl}
             mapAnnotations={currentMap.annotations}
             canCopyPrevious={selectedSegmentIndex > 0}
+            plansData={plansData}
+            plansNumPages={plansNumPages}
             onObservationChange={(obs) => handleObservationChange(currentSegmentId, obs)}
             onMapChange={(compositeUrl, rawUrl, anns) => handleMapChange(currentSegmentId, compositeUrl, rawUrl, anns)}
             onCopyPrevious={handleCopyPrevious}

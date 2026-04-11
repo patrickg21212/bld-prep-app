@@ -35,7 +35,8 @@ export type PrepField =
   | 'readyToLine'
   | 'comments1'
   | 'comments2'
-  | 'pipeMaterial';
+  | 'pipeMaterial'
+  | 'sheetNumber';
 
 export const PREP_FIELD_LABELS: Record<PrepField, string> = {
   date: 'DATE',
@@ -51,6 +52,7 @@ export const PREP_FIELD_LABELS: Record<PrepField, string> = {
   comments1: 'COMMENTS (Pre-TV Notes)',
   comments2: 'COMMENTS (Other)',
   pipeMaterial: 'PIPE MATERIAL',
+  sheetNumber: 'SHEET #',
 };
 
 export interface Segment {
@@ -68,6 +70,7 @@ export interface Segment {
   readyToLine: boolean;
   comments: string;
   pipeMaterial: string;
+  sheetNumber: string;
   raw: Record<string, string>;
 }
 
