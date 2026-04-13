@@ -6,46 +6,34 @@ const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174';
 let pdfjsPromise: Promise<any> | null = null;
 
 function getPdfjs(): Promise<any> {
-  // Already loaded on window
-  if ((window as any).pdfjsLib) {
-    return Promise.resolve((window as any).pdfjsLib);
-  }
+  if ((window as any).pdfjsLib) return Promise.resolve((window as any).pdfjsLib);
   if (pdfjsPromise) return pdfjsPromise;
-
   pdfjsPromise = new Promise((resolve, reject) => {
-    // pdf.js v3 uses a UMD build that sets window.pdfjsLib
     const script = document.createElement('script');
     script.src = `${PDFJS_CDN}/pdf.min.js`;
     script.onload = () => {
       const lib = (window as any).pdfjsLib;
-      if (!lib) {
-        reject(new Error('pdf.js loaded but pdfjsLib not found on window'));
-        return;
-      }
+      if (!lib) { reject(new Error('pdf.js not found on window')); return; }
       lib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.js`;
       resolve(lib);
     };
     script.onerror = () => reject(new Error('Failed to load pdf.js from CDN'));
     document.head.appendChild(script);
   });
-
   return pdfjsPromise;
 }
 
 interface Props {
-  /** Raw PDF bytes stored in IndexedDB */
   pdfData: ArrayBuffer;
-  /** 1-based page number to display (from segment's sheetNumber field) */
   initialPage: number;
-  /** Total pages in the PDF (shown in nav) */
   totalPages?: number;
-  /** Called when user clicks to crop a region; returns cropped image data URL */
   onCrop: (croppedDataUrl: string, clickX: number, clickY: number) => void;
   onClose: () => void;
 }
 
-const RENDER_SCALE = 1.5; // Balance between quality and performance
-const CROP_SIZE = 400;    // Crop region size in PDF points (adjustable)
+const RENDER_SCALE = 1.5;
+const CROP_SIZE_DEFAULT = 400;
+const DRAG_THRESHOLD = 5; // pixels of movement before it counts as a drag
 
 export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -54,16 +42,20 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
   const [numPages, setNumPages] = useState(totalPages ?? 1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(0.5); // Start zoomed out to fit
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
-  const [cropSize, setCropSize] = useState(CROP_SIZE);
+  const [cropSize, setCropSize] = useState(CROP_SIZE_DEFAULT);
   const [cursor, setCursor] = useState({ x: 0, y: 0, visible: false });
 
+  // Crop marker: placed on click, confirmed with button
+  const [cropMarker, setCropMarker] = useState<{ canvasX: number; canvasY: number } | null>(null);
+
+  // Drag state
+  const dragRef = useRef({ active: false, startX: 0, startY: 0, startPanX: 0, startPanY: 0, moved: false });
+
   const pdfDocRef = useRef<any>(null);
-  const pageDataRef = useRef<{ width: number; height: number; scale: number }>({ width: 0, height: 0, scale: 1 });
-  const [docReady, setDocReady] = useState(false); // Triggers page render
+  const pageDataRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+  const [docReady, setDocReady] = useState(false);
 
   // Load PDF document
   useEffect(() => {
@@ -74,13 +66,11 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
         setError(null);
         setDocReady(false);
         const pdfjs = await getPdfjs();
-        // Copy the buffer — pdf.js detaches the original
         const data = new Uint8Array(pdfData.slice(0));
         const doc = await pdfjs.getDocument({ data }).promise;
         if (cancelled) return;
         pdfDocRef.current = doc;
         setNumPages(doc.numPages);
-        // Clamp page to valid range
         const clamped = Math.max(1, Math.min(page, doc.numPages));
         if (clamped !== page) setPage(clamped);
         setDocReady(true);
@@ -93,7 +83,7 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
     return () => { cancelled = true; };
   }, [pdfData]);
 
-  // Render current page — triggered by docReady or page change
+  // Render current page
   useEffect(() => {
     if (!docReady) return;
     let cancelled = false;
@@ -108,11 +98,25 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
         const canvas = canvasRef.current;
         canvas.width = viewport.width;
         canvas.height = viewport.height;
-        pageDataRef.current = { width: viewport.width, height: viewport.height, scale: RENDER_SCALE };
+        pageDataRef.current = { width: viewport.width, height: viewport.height };
 
         const ctx = canvas.getContext('2d')!;
         await pdfPage.render({ canvasContext: ctx, viewport }).promise;
         if (cancelled) return;
+
+        // Auto-fit: calculate zoom to fit page in container
+        const container = containerRef.current;
+        if (container) {
+          const containerW = container.clientWidth;
+          const containerH = container.clientHeight;
+          const fitZoom = Math.min(
+            containerW / viewport.width,
+            containerH / viewport.height,
+          ) * 0.95; // 95% to leave some margin
+          setZoom(fitZoom);
+          setPan({ x: 0, y: 0 });
+        }
+
         setLoading(false);
       } catch (e) {
         if (!cancelled) {
@@ -125,69 +129,78 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
     return () => { cancelled = true; };
   }, [page, docReady]);
 
-  // Reset pan/zoom when page changes
+  // Reset crop marker when page changes
   useEffect(() => {
-    setPan({ x: 0, y: 0 });
-    setZoom(1);
+    setCropMarker(null);
   }, [page]);
 
+  // Scroll to zoom
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(z => Math.max(0.3, Math.min(5, z * delta)));
+    setZoom(z => Math.max(0.1, Math.min(5, z * delta)));
   }, []);
 
+  // Drag to pan (any click)
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 1 || e.altKey) {
-      // Middle-click or alt+click = pan
-      setIsPanning(true);
-      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-      e.preventDefault();
-    }
+    if (e.button !== 0) return; // left button only
+    dragRef.current = {
+      active: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      startPanX: pan.x,
+      startPanY: pan.y,
+      moved: false,
+    };
   }, [pan]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isPanning) {
-      setPan({ x: e.clientX - panStart.x, y: e.clientY - panStart.y });
+    const d = dragRef.current;
+    if (d.active) {
+      const dx = e.clientX - d.startX;
+      const dy = e.clientY - d.startY;
+      if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+        d.moved = true;
+      }
+      setPan({ x: d.startPanX + dx, y: d.startPanY + dy });
     }
-    // Update cursor position for crop preview
+    // Cursor for crop preview
     const container = containerRef.current;
     if (container) {
       const rect = container.getBoundingClientRect();
       setCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top, visible: true });
     }
-  }, [isPanning, panStart]);
+  }, []);
 
-  const handleMouseUp = useCallback(() => {
-    setIsPanning(false);
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    const d = dragRef.current;
+    if (d.active && !d.moved) {
+      // It was a click (not a drag) — place crop marker
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const canvasRect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - canvasRect.left;
+        const mouseY = e.clientY - canvasRect.top;
+        const canvasX = (mouseX / canvasRect.width) * canvas.width;
+        const canvasY = (mouseY / canvasRect.height) * canvas.height;
+        setCropMarker({ canvasX, canvasY });
+      }
+    }
+    dragRef.current.active = false;
   }, []);
 
   const handleMouseLeave = useCallback(() => {
-    setIsPanning(false);
+    dragRef.current.active = false;
     setCursor(c => ({ ...c, visible: false }));
   }, []);
 
-  // Click to crop
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    if (isPanning) return;
+  // Confirm crop at marker position
+  const confirmCrop = useCallback(() => {
+    if (!cropMarker) return;
     const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
+    if (!canvas) return;
 
-    const containerRect = container.getBoundingClientRect();
-    const canvasRect = canvas.getBoundingClientRect();
-
-    // Mouse position relative to the displayed canvas
-    const mouseX = e.clientX - canvasRect.left;
-    const mouseY = e.clientY - canvasRect.top;
-
-    // Convert to actual canvas pixel coordinates
-    const displayWidth = canvasRect.width;
-    const displayHeight = canvasRect.height;
-    const canvasX = (mouseX / displayWidth) * canvas.width;
-    const canvasY = (mouseY / displayHeight) * canvas.height;
-
-    // Crop region in canvas pixels
+    const { canvasX, canvasY } = cropMarker;
     const cropPixels = cropSize * RENDER_SCALE;
     const halfCrop = cropPixels / 2;
     const sx = Math.max(0, Math.min(canvas.width - cropPixels, canvasX - halfCrop));
@@ -195,7 +208,6 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
     const sw = Math.min(cropPixels, canvas.width - sx);
     const sh = Math.min(cropPixels, canvas.height - sy);
 
-    // Create cropped canvas
     const cropCanvas = document.createElement('canvas');
     cropCanvas.width = sw;
     cropCanvas.height = sh;
@@ -203,37 +215,54 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
     ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
 
     const dataUrl = cropCanvas.toDataURL('image/png');
-
-    // Calculate click position relative to crop (for placing the ellipse)
-    const clickInCropX = canvasX - sx;
-    const clickInCropY = canvasY - sy;
-    const relX = clickInCropX / sw; // 0-1 relative position
-    const relY = clickInCropY / sh;
+    const relX = (canvasX - sx) / sw;
+    const relY = (canvasY - sy) / sh;
 
     onCrop(dataUrl, relX, relY);
-  }, [isPanning, cropSize, onCrop]);
+  }, [cropMarker, cropSize, onCrop]);
 
-  // Crop preview overlay dimensions
-  const getPreviewRect = () => {
-    if (!cursor.visible || !canvasRef.current || !containerRef.current) return null;
+  // Fit page to container
+  const fitToView = useCallback(() => {
+    const container = containerRef.current;
+    const { width, height } = pageDataRef.current;
+    if (!container || !width) return;
+    const fitZoom = Math.min(
+      container.clientWidth / width,
+      container.clientHeight / height,
+    ) * 0.95;
+    setZoom(fitZoom);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+  // Get crop marker position in screen coordinates for overlay
+  const getMarkerScreenRect = () => {
+    if (!cropMarker || !canvasRef.current) return null;
     const canvas = canvasRef.current;
     const canvasRect = canvas.getBoundingClientRect();
-    const displayScale = canvasRect.width / canvas.width;
-    const size = cropSize * RENDER_SCALE * displayScale;
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    if (!containerRect) return null;
+
+    const scaleX = canvasRect.width / canvas.width;
+    const scaleY = canvasRect.height / canvas.height;
+    const cropPixels = cropSize * RENDER_SCALE;
+
+    const sx = Math.max(0, Math.min(canvas.width - cropPixels, cropMarker.canvasX - cropPixels / 2));
+    const sy = Math.max(0, Math.min(canvas.height - cropPixels, cropMarker.canvasY - cropPixels / 2));
+
     return {
-      left: cursor.x - size / 2,
-      top: cursor.y - size / 2,
-      width: size,
-      height: size,
+      left: canvasRect.left - containerRect.left + sx * scaleX,
+      top: canvasRect.top - containerRect.top + sy * scaleY,
+      width: Math.min(cropPixels, canvas.width - sx) * scaleX,
+      height: Math.min(cropPixels, canvas.height - sy) * scaleY,
     };
   };
 
-  const preview = getPreviewRect();
+  const markerRect = getMarkerScreenRect();
 
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 100,
-      background: 'rgba(0,0,0,0.85)',
+      background: 'rgba(0,0,0,0.9)',
       display: 'flex', flexDirection: 'column',
     }}>
       {/* Toolbar */}
@@ -241,51 +270,46 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
         background: 'var(--nav-bg)', padding: '8px 16px',
         display: 'flex', alignItems: 'center', gap: 12,
         borderBottom: '1px solid rgba(255,255,255,0.1)',
-        flexShrink: 0,
+        flexShrink: 0, flexWrap: 'wrap',
       }}>
-        <button onClick={onClose} style={toolBtnStyle}>
-          &times; Close
-        </button>
+        <button onClick={onClose} style={toolBtnStyle}>&times; Close</button>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'white' }}>
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            style={{ ...toolBtnStyle, opacity: page <= 1 ? 0.4 : 1 }}
-          >
-            &larr;
-          </button>
-          <span style={{ fontSize: 14, minWidth: 80, textAlign: 'center' }}>
-            Page {page} / {numPages}
-          </span>
-          <button
-            onClick={() => setPage(p => Math.min(numPages, p + 1))}
-            disabled={page >= numPages}
-            style={{ ...toolBtnStyle, opacity: page >= numPages ? 0.4 : 1 }}
-          >
-            &rarr;
-          </button>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+            style={{ ...toolBtnStyle, opacity: page <= 1 ? 0.4 : 1 }}>&larr;</button>
+          <span style={{ fontSize: 14, minWidth: 80, textAlign: 'center' }}>Page {page} / {numPages}</span>
+          <button onClick={() => setPage(p => Math.min(numPages, p + 1))} disabled={page >= numPages}
+            style={{ ...toolBtnStyle, opacity: page >= numPages ? 0.4 : 1 }}>&rarr;</button>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'white' }}>
-          <button onClick={() => setZoom(z => Math.max(0.3, z * 0.8))} style={toolBtnStyle}>-</button>
+          <button onClick={() => setZoom(z => Math.max(0.1, z * 0.8))} style={toolBtnStyle}>-</button>
           <span style={{ fontSize: 14, minWidth: 50, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
           <button onClick={() => setZoom(z => Math.min(5, z * 1.25))} style={toolBtnStyle}>+</button>
-          <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} style={toolBtnStyle}>Fit</button>
+          <button onClick={fitToView} style={toolBtnStyle}>Fit</button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'white', marginLeft: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'white' }}>
           <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>Crop size:</span>
-          <input
-            type="range" min={200} max={800} step={50} value={cropSize}
+          <input type="range" min={150} max={800} step={50} value={cropSize}
             onChange={e => setCropSize(Number(e.target.value))}
-            style={{ width: 100, accentColor: 'var(--accent)' }}
-          />
+            style={{ width: 100, accentColor: 'var(--accent)' }} />
           <span style={{ fontSize: 13, minWidth: 30 }}>{cropSize}</span>
         </div>
 
+        {/* Confirm crop button */}
+        {cropMarker && (
+          <button onClick={confirmCrop} style={{
+            background: '#2f81f7', border: 'none', color: 'white',
+            borderRadius: 4, padding: '6px 16px', fontSize: 14, fontWeight: 600,
+            cursor: 'pointer', marginLeft: 8,
+          }}>
+            Crop Here
+          </button>
+        )}
+
         <div style={{ marginLeft: 'auto', color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
-          Click on a segment to crop &middot; Alt+drag to pan &middot; Scroll to zoom
+          Drag to pan &middot; Scroll to zoom &middot; Click to mark crop area &middot; Then "Crop Here"
         </div>
       </div>
 
@@ -294,14 +318,13 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
         ref={containerRef}
         style={{
           flex: 1, overflow: 'hidden', position: 'relative',
-          cursor: isPanning ? 'grabbing' : 'crosshair',
+          cursor: dragRef.current.active ? 'grabbing' : 'grab',
         }}
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
-        onClick={handleClick}
       >
         {loading && (
           <div style={{
@@ -337,20 +360,28 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
           }}
         />
 
-        {/* Crop preview rectangle */}
-        {preview && !isPanning && (
+        {/* Crop marker rectangle (green, shows where crop will happen) */}
+        {markerRect && !loading && (
           <div style={{
             position: 'absolute',
-            left: preview.left,
-            top: preview.top,
-            width: preview.width,
-            height: preview.height,
-            border: '2px solid rgba(47, 129, 247, 0.8)',
-            background: 'rgba(47, 129, 247, 0.08)',
+            left: markerRect.left,
+            top: markerRect.top,
+            width: markerRect.width,
+            height: markerRect.height,
+            border: '3px solid #2f81f7',
+            background: 'rgba(47, 129, 247, 0.1)',
             borderRadius: 4,
             pointerEvents: 'none',
             zIndex: 3,
-          }} />
+          }}>
+            <div style={{
+              position: 'absolute', top: -24, left: '50%', transform: 'translateX(-50%)',
+              background: '#2f81f7', color: 'white', fontSize: 12, fontWeight: 600,
+              padding: '2px 8px', borderRadius: 3, whiteSpace: 'nowrap',
+            }}>
+              Click "Crop Here" to confirm
+            </div>
+          </div>
         )}
       </div>
     </div>
