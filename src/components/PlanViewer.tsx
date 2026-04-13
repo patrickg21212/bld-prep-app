@@ -1,31 +1,32 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 
-// Load pdf.js from CDN to avoid Vite/SSR bundling issues
-const PDFJS_VERSION = '4.10.38';
-const PDFJS_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
+// Load pdf.js via script tag — most reliable cross-browser method
+const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174';
 
-let pdfjsLoaded: any = null;
 let pdfjsPromise: Promise<any> | null = null;
 
 function getPdfjs(): Promise<any> {
-  if (pdfjsLoaded) return Promise.resolve(pdfjsLoaded);
+  // Already loaded on window
+  if ((window as any).pdfjsLib) {
+    return Promise.resolve((window as any).pdfjsLib);
+  }
   if (pdfjsPromise) return pdfjsPromise;
 
   pdfjsPromise = new Promise((resolve, reject) => {
+    // pdf.js v3 uses a UMD build that sets window.pdfjsLib
     const script = document.createElement('script');
-    script.src = `${PDFJS_CDN}/pdf.min.mjs`;
-    script.type = 'module';
-
-    // For module scripts, we use a different approach
-    // Load via dynamic import from CDN
-    import(/* @vite-ignore */ `${PDFJS_CDN}/pdf.min.mjs`)
-      .then((mod) => {
-        const lib = mod.default || mod;
-        lib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.mjs`;
-        pdfjsLoaded = lib;
-        resolve(lib);
-      })
-      .catch(reject);
+    script.src = `${PDFJS_CDN}/pdf.min.js`;
+    script.onload = () => {
+      const lib = (window as any).pdfjsLib;
+      if (!lib) {
+        reject(new Error('pdf.js loaded but pdfjsLib not found on window'));
+        return;
+      }
+      lib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.js`;
+      resolve(lib);
+    };
+    script.onerror = () => reject(new Error('Failed to load pdf.js from CDN'));
+    document.head.appendChild(script);
   });
 
   return pdfjsPromise;

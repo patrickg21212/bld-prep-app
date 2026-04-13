@@ -6,6 +6,27 @@ import type { SheetInfo } from '../lib/excel';
 import { autoMapColumns, fingerprintHeaders } from '../lib/fuzzy';
 import { db, getSavedMapping, saveMapping, saveDraft, getDraft, getProjectDefaults, saveProjectDefaults, getRecentProjects, savePlans, getPlans } from '../lib/db';
 
+// Load pdf.js from CDN via script tag (UMD build sets window.pdfjsLib)
+const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174';
+let pdfjsPromise: Promise<any> | null = null;
+function loadPdfjs(): Promise<any> {
+  if ((window as any).pdfjsLib) return Promise.resolve((window as any).pdfjsLib);
+  if (pdfjsPromise) return pdfjsPromise;
+  pdfjsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = `${PDFJS_CDN}/pdf.min.js`;
+    script.onload = () => {
+      const lib = (window as any).pdfjsLib;
+      if (!lib) { reject(new Error('pdf.js not found')); return; }
+      lib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.js`;
+      resolve(lib);
+    };
+    script.onerror = () => reject(new Error('Failed to load pdf.js'));
+    document.head.appendChild(script);
+  });
+  return pdfjsPromise;
+}
+
 import HomeScreen from './HomeScreen';
 import SheetPicker from './SheetPicker';
 import ColumnMapper from './ColumnMapper';
@@ -194,10 +215,8 @@ export default function App() {
       const buffer = await file.arrayBuffer();
       // Make a copy — pdf.js detaches the original ArrayBuffer
       const bufferCopy = buffer.slice(0);
-      // Get page count using CDN-loaded pdf.js to avoid bundling issues
-      const pdfjsLib = await import(/* @vite-ignore */ `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs`);
-      const lib = pdfjsLib.default || pdfjsLib;
-      lib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
+      // Load pdf.js via script tag if not already loaded
+      const lib = await loadPdfjs();
       const doc = await lib.getDocument({ data: new Uint8Array(bufferCopy) }).promise;
       const numPages = doc.numPages;
 
