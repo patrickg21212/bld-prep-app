@@ -71,7 +71,8 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
         setLoading(true);
         setError(null);
         const pdfjs = await getPdfjs();
-        const data = new Uint8Array(pdfData);
+        // Copy the buffer — pdf.js detaches the original
+        const data = new Uint8Array(pdfData.slice(0));
         const doc = await pdfjs.getDocument({ data }).promise;
         if (cancelled) return;
         pdfDocRef.current = doc;

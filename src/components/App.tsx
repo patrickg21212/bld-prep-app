@@ -192,11 +192,13 @@ export default function App() {
   const handlePlansUpload = useCallback(async (file: File) => {
     try {
       const buffer = await file.arrayBuffer();
+      // Make a copy — pdf.js detaches the original ArrayBuffer
+      const bufferCopy = buffer.slice(0);
       // Get page count using CDN-loaded pdf.js to avoid bundling issues
       const pdfjsLib = await import(/* @vite-ignore */ `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs`);
       const lib = pdfjsLib.default || pdfjsLib;
       lib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
-      const doc = await lib.getDocument({ data: new Uint8Array(buffer) }).promise;
+      const doc = await lib.getDocument({ data: new Uint8Array(bufferCopy) }).promise;
       const numPages = doc.numPages;
 
       setPlansData(buffer);
