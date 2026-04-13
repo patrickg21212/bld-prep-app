@@ -18,7 +18,6 @@ export interface PdfInput {
   jobNumber: string;
   jobName: string;
   mapImageDataUrl?: string;
-  time?: string;
 }
 
 // ── Page constants (letter size in mm) ──────────────────────────────────────
@@ -274,19 +273,9 @@ function formatDate(segment: Segment): string {
   return '';
 }
 
-/** Format time for display. */
-function formatTime(time?: string): string {
-  if (time) return time;
-  return new Date().toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
-}
-
 // ── Core rendering function (draws one page onto a jsPDF doc) ───────────────
 function renderPage(doc: jsPDF, input: PdfInput): void {
-  const { segment, observations, jobNumber, jobName, mapImageDataUrl, time } = input;
+  const { segment, observations, jobNumber, jobName, mapImageDataUrl } = input;
 
   let y = 10;
 
@@ -307,17 +296,15 @@ function renderPage(doc: jsPDF, input: PdfInput): void {
 
   y += logoH + 8;
 
-  // ── ROW 1: DATE, TIME, JOB#, REPAIR#, JOB NAME ─────────────────────────
-  // All on one line with underlines: DATE:___ TIME:___ JOB#___ REPAIR#___ JOB NAME:___
+  // ── ROW 1: DATE, JOB#, REPAIR#, JOB NAME ────────────────────────────────
   const r1Y = y;
   const leftX = MARGIN_L;
 
   // Layout the header fields across the full width
-  drawField(doc, 'DATE:', formatDate(segment), leftX, r1Y, 30);
-  drawField(doc, 'TIME :', formatTime(time), leftX + 32, r1Y, 26);
-  drawField(doc, 'JOB #', jobNumber, leftX + 60, r1Y, 28);
-  drawField(doc, 'REPAIR #', segment.repairNumber, leftX + 90, r1Y, 30);
-  drawField(doc, 'JOB NAME:', jobName, leftX + 122, r1Y, CONTENT_W - 122);
+  drawField(doc, 'DATE:', formatDate(segment), leftX, r1Y, 34);
+  drawField(doc, 'JOB #', jobNumber, leftX + 36, r1Y, 32);
+  drawField(doc, 'REPAIR #', segment.repairNumber, leftX + 70, r1Y, 32);
+  drawField(doc, 'JOB NAME:', jobName, leftX + 104, r1Y, CONTENT_W - 104);
 
   y += ROW_GAP;
 

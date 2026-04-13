@@ -167,10 +167,6 @@ export default function SegmentEditor({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <ReadOnlyField label="JOB #" value={jobNumber || '—'} />
               <ReadOnlyField label="JOB NAME" value={jobName || '—'} />
-              <ReadOnlyField
-                label="TIME"
-                value={new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-              />
             </div>
           </div>
         </div>
