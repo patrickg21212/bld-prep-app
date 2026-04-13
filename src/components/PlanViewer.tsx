@@ -44,8 +44,8 @@ interface Props {
   onClose: () => void;
 }
 
-const RENDER_SCALE = 2; // High-res render for crisp crops
-const CROP_SIZE = 400;  // Crop region size in PDF points (adjustable)
+const RENDER_SCALE = 1.5; // Balance between quality and performance
+const CROP_SIZE = 400;    // Crop region size in PDF points (adjustable)
 
 export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -63,6 +63,7 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
 
   const pdfDocRef = useRef<any>(null);
   const pageDataRef = useRef<{ width: number; height: number; scale: number }>({ width: 0, height: 0, scale: 1 });
+  const [docReady, setDocReady] = useState(false); // Triggers page render
 
   // Load PDF document
   useEffect(() => {
@@ -71,6 +72,7 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
       try {
         setLoading(true);
         setError(null);
+        setDocReady(false);
         const pdfjs = await getPdfjs();
         // Copy the buffer — pdf.js detaches the original
         const data = new Uint8Array(pdfData.slice(0));
@@ -79,20 +81,23 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
         pdfDocRef.current = doc;
         setNumPages(doc.numPages);
         // Clamp page to valid range
-        if (page > doc.numPages) setPage(doc.numPages);
-        if (page < 1) setPage(1);
+        const clamped = Math.max(1, Math.min(page, doc.numPages));
+        if (clamped !== page) setPage(clamped);
+        setDocReady(true);
       } catch (e) {
         if (!cancelled) setError('Failed to load PDF: ' + (e instanceof Error ? e.message : String(e)));
+        setLoading(false);
       }
     }
     loadPdf();
     return () => { cancelled = true; };
   }, [pdfData]);
 
-  // Render current page
+  // Render current page — triggered by docReady or page change
   useEffect(() => {
+    if (!docReady) return;
     let cancelled = false;
-    async function renderPage() {
+    async function doRender() {
       const doc = pdfDocRef.current;
       if (!doc || !canvasRef.current) return;
       try {
@@ -116,9 +121,9 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
         }
       }
     }
-    renderPage();
+    doRender();
     return () => { cancelled = true; };
-  }, [page, pdfDocRef.current]);
+  }, [page, docReady]);
 
   // Reset pan/zoom when page changes
   useEffect(() => {
