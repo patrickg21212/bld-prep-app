@@ -152,6 +152,19 @@ export default function MapAnnotation({
   const [annotations, setAnnotations] = useState<AnnotationData[]>(initialAnnotations ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Sync when initialImage/initialAnnotations change from outside (e.g. PlanViewer crop)
+  useEffect(() => {
+    if (initialImage !== undefined) {
+      setImageDataUrl(initialImage ?? null);
+    }
+  }, [initialImage]);
+
+  useEffect(() => {
+    if (initialAnnotations !== undefined) {
+      setAnnotations(initialAnnotations ?? []);
+    }
+  }, [initialAnnotations]);
+
   // Undo / redo stacks hold full snapshots for simplicity
   const [undoStack, setUndoStack] = useState<AnnotationData[][]>([]);
   const [redoStack, setRedoStack] = useState<AnnotationData[][]>([]);
