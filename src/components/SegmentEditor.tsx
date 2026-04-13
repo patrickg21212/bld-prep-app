@@ -72,7 +72,7 @@ export default function SegmentEditor({
         y: relY * h,
         radiusX: w * 0.15,  // Start with an oval shape
         radiusY: w * 0.08,  // Wider than tall
-        stroke: '#ff0000',
+        stroke: '#3B82F6',
         strokeWidth: 3,
       };
       onMapChange(null, croppedDataUrl, [ellipse]);
