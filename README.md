@@ -1,28 +1,43 @@
-# BLD Services — CIPP Liner Prep Sheet App
+# Astro Starter Kit: Minimal
 
-A web application that automates CIPP (Cured-In-Place Pipe) liner preparation sheets for BLD Services. Replaces manual spreadsheet workflows with a streamlined digital tool for field service teams.
+```sh
+pnpm create astro@latest -- --template minimal
+```
 
-## What It Does
+> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
 
-- **Excel/CSV Import** — Upload existing spreadsheet data with automatic column mapping and fuzzy matching
-- **Segment Editor** — Edit pipe segment details with inline validation
-- **Map Annotations** — Add location-based annotations to project maps
-- **PDF Generation** — Generate formatted prep sheets ready for field use
-- **Batch Export** — Export multiple prep sheets at once for large projects
-- **Project Settings** — Configure project-specific parameters and defaults
-- **Offline-First** — All data stored locally in IndexedDB, works without internet
+## 🚀 Project Structure
 
-## Tech Stack
+Inside of your Astro project, you'll see the following folders and files:
 
-- **Astro** — Static site generation with island architecture
-- **React** — Interactive UI components
-- **TypeScript** — Type-safe development
-- **IndexedDB** — Client-side persistent storage
-- **jsPDF** — PDF generation
-- **SheetJS** — Excel/CSV parsing and column mapping
+```text
+/
+├── public/
+├── src/
+│   └── pages/
+│       └── index.astro
+└── package.json
+```
 
-## About
+Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
 
-Built by [Patrick Gibbs](https://epiphanydynamics.ai) at **Epiphany Dynamics** for BLD Services, a sewer rehabilitation company. This tool replaced a manual spreadsheet workflow that was eating hours per project for the field team.
+There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
 
-*Epiphany Dynamics — Work, Reimagined.*
+Any static assets, like images, can be placed in the `public/` directory.
+
+## 🧞 Commands
+
+All commands are run from the root of the project, from a terminal:
+
+| Command                   | Action                                           |
+| :------------------------ | :----------------------------------------------- |
+| `pnpm install`             | Installs dependencies                            |
+| `pnpm dev`             | Starts local dev server at `localhost:4321`      |
+| `pnpm build`           | Build your production site to `./dist/`          |
+| `pnpm preview`         | Preview your build locally, before deploying     |
+| `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
+| `pnpm astro -- --help` | Get help using the Astro CLI                     |
+
+## 👀 Want to learn more?
+
+Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import type { AppProject } from '../lib/types';
 
 interface Props {
@@ -14,6 +14,16 @@ export default function ProjectSettings({ project, initialJobNumber, initialJobN
   const [jobNumber, setJobNumber] = useState(initialJobNumber);
   const [jobName, setJobName] = useState(initialJobName || project.name);
   const plansInputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handlePlansDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') {
+      onPlansUpload(file);
+    }
+  }, [onPlansUpload]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,11 +53,18 @@ export default function ProjectSettings({ project, initialJobNumber, initialJobN
         </div>
       </div>
 
-      {/* Plans PDF upload */}
-      <div style={{
-        background: 'var(--bg-card)', border: '1px solid var(--border)',
-        borderRadius: 8, padding: '14px 16px', marginBottom: 24,
-      }}>
+      {/* Plans PDF upload with drag-and-drop */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handlePlansDrop}
+        style={{
+          background: dragOver ? 'rgba(47,129,247,0.06)' : 'var(--bg-card)',
+          border: `1px ${plansFileName ? 'solid' : 'dashed'} ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
+          borderRadius: 8, padding: '14px 16px', marginBottom: 24,
+          transition: 'all 0.15s',
+        }}
+      >
         <div style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 4, textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em' }}>
           PROJECT PLANS / MAP (Optional)
         </div>
@@ -75,17 +92,23 @@ export default function ProjectSettings({ project, initialJobNumber, initialJobN
             </button>
           </div>
         ) : (
-          <button
-            type="button"
+          <div
             onClick={() => plansInputRef.current?.click()}
             style={{
-              background: 'var(--accent-subtle)', border: '1px dashed var(--accent)',
-              color: 'var(--accent)', borderRadius: 6, padding: '10px 20px',
+              background: dragOver ? 'rgba(47,129,247,0.1)' : 'var(--accent-subtle)',
+              border: `1px dashed ${dragOver ? 'var(--accent)' : 'rgba(47,129,247,0.3)'}`,
+              color: 'var(--accent)', borderRadius: 6, padding: '24px 20px',
               fontSize: 14, fontWeight: 600, cursor: 'pointer', width: '100%',
+              textAlign: 'center', transition: 'all 0.15s',
             }}
           >
-            Upload Plans PDF
-          </button>
+            {dragOver ? 'Drop PDF here' : (
+              <>
+                <div style={{ marginBottom: 4 }}>Drag & drop plans PDF here</div>
+                <div style={{ fontSize: 13, fontWeight: 400, opacity: 0.7 }}>or click to browse</div>
+              </>
+            )}
+          </div>
         )}
         <input
           ref={plansInputRef}

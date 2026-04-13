@@ -192,10 +192,11 @@ export default function App() {
   const handlePlansUpload = useCallback(async (file: File) => {
     try {
       const buffer = await file.arrayBuffer();
-      // Get page count using dynamic import to avoid SSR issues
-      const pdfjsLib = await import('pdfjs-dist');
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
-      const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+      // Get page count using CDN-loaded pdf.js to avoid bundling issues
+      const pdfjsLib = await import(/* @vite-ignore */ `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs`);
+      const lib = pdfjsLib.default || pdfjsLib;
+      lib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
+      const doc = await lib.getDocument({ data: new Uint8Array(buffer) }).promise;
       const numPages = doc.numPages;
 
       setPlansData(buffer);

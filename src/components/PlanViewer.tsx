@@ -1,8 +1,35 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
 
-// Set worker source for pdf.js
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+// Load pdf.js from CDN to avoid Vite/SSR bundling issues
+const PDFJS_VERSION = '4.10.38';
+const PDFJS_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
+
+let pdfjsLoaded: any = null;
+let pdfjsPromise: Promise<any> | null = null;
+
+function getPdfjs(): Promise<any> {
+  if (pdfjsLoaded) return Promise.resolve(pdfjsLoaded);
+  if (pdfjsPromise) return pdfjsPromise;
+
+  pdfjsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = `${PDFJS_CDN}/pdf.min.mjs`;
+    script.type = 'module';
+
+    // For module scripts, we use a different approach
+    // Load via dynamic import from CDN
+    import(/* @vite-ignore */ `${PDFJS_CDN}/pdf.min.mjs`)
+      .then((mod) => {
+        const lib = mod.default || mod;
+        lib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.mjs`;
+        pdfjsLoaded = lib;
+        resolve(lib);
+      })
+      .catch(reject);
+  });
+
+  return pdfjsPromise;
+}
 
 interface Props {
   /** Raw PDF bytes stored in IndexedDB */
@@ -43,8 +70,9 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
       try {
         setLoading(true);
         setError(null);
+        const pdfjs = await getPdfjs();
         const data = new Uint8Array(pdfData);
-        const doc = await pdfjsLib.getDocument({ data }).promise;
+        const doc = await pdfjs.getDocument({ data }).promise;
         if (cancelled) return;
         pdfDocRef.current = doc;
         setNumPages(doc.numPages);
