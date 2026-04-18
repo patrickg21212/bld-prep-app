@@ -490,6 +490,11 @@ export default function MapAnnotation({
     if ((drawPreview.radiusX ?? 0) > 3 || (drawPreview.radiusY ?? 0) > 3) {
       const newAnn: AnnotationData = { ...drawPreview, id: uid() };
       commitAnnotations([...annotations, newAnn], [...annotations]);
+      // Drop out of draw mode and select the new ellipse so the Edit Circle
+      // toolbar appears immediately — the worker can reshape / rotate / drag
+      // without hunting for the Select tool first.
+      setTool('select');
+      setSelectedId(newAnn.id);
     }
     setDrawing(false);
     setDrawOrigin(null);
@@ -868,7 +873,11 @@ export default function MapAnnotation({
                     rotation={ann.rotation ?? 0}
                     stroke={ann.stroke ?? activeColor}
                     strokeWidth={ann.strokeWidth ?? 3}
-                    fill="transparent"
+                    // Near-invisible fill so the whole interior is clickable.
+                    // Pure 'transparent' makes Konva treat the shape as
+                    // hollow, so clicks inside the ellipse fall through to
+                    // the map image and the selection is cleared instead.
+                    fill="rgba(0,0,0,0.001)"
                     draggable={tool === 'select'}
                     onClick={() => onAnnotationClick(ann.id)}
                     onTap={() => onAnnotationClick(ann.id)}
