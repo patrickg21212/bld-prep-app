@@ -421,8 +421,32 @@ function renderPage(doc: jsPDF, input: PdfInput): void {
   doc.text('SCHEMATIC DRAWING', PAGE_W / 2, y + 6, { align: 'center' });
   y += 10;
 
-  // Schematic area: from current y to just above comments
-  const commentsAreaH = 24;
+  // Comments: pre-compute wrapped lines so the comments section can grow
+  // when the text is longer than three lines. Schematic gets whatever's left.
+  const COMMENT_LINE_MM = 6;       // spacing between ruled lines
+  const COMMENT_BASE_LINES = 3;    // minimum ruled-line count (blank look)
+  const COMMENT_MAX_LINES = 8;     // cap so the schematic never collapses
+  const COMMENT_INDENT_MM = 26;    // x-offset after the "COMMENTS:" label
+
+  const _allComments: string[] = [];
+  if (segment.comments) _allComments.push(segment.comments);
+  if (observations.notes) _allComments.push(observations.notes);
+  const _commentText = _allComments.join(' | ');
+
+  // Use the same font settings as the actual render so wrap math lines up
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(FONT_VALUE);
+  const _wrapped = _commentText
+    ? (doc.splitTextToSize(_commentText, CONTENT_W - COMMENT_INDENT_MM) as string[])
+    : [];
+  const commentLineCount = Math.max(
+    COMMENT_BASE_LINES,
+    Math.min(_wrapped.length || COMMENT_BASE_LINES, COMMENT_MAX_LINES),
+  );
+  // Header ("COMMENTS:") takes the first line slot; extra slots are ruled
+  // lines below. Total height = (lines) * line-height + padding.
+  const commentsAreaH = commentLineCount * COMMENT_LINE_MM + 6;
+
   const schematicTop = y;
   const schematicBottom = PAGE_H - MARGIN_R - commentsAreaH - 4;
   const schematicH = schematicBottom - schematicTop;
@@ -457,30 +481,35 @@ function renderPage(doc: jsPDF, input: PdfInput): void {
   // ── COMMENTS SECTION ────────────────────────────────────────────────────
   const commentsY = schematicBottom + 6;
 
-  // Combine segment comments and observation notes
-  const allComments: string[] = [];
-  if (segment.comments) allComments.push(segment.comments);
-  if (observations.notes) allComments.push(observations.notes);
-  const commentText = allComments.join(' | ');
-
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(FONT_LABEL);
   doc.setTextColor(BLACK);
   doc.text('COMMENTS:', MARGIN_L, commentsY);
 
-  if (commentText) {
+  // Render each wrapped line on its own ruled row so text never overlaps
+  // the underlines. jsPDF's default line-height doesn't match our 6mm
+  // ruled spacing, which is what caused the jumbled-text look.
+  if (_wrapped.length > 0) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(FONT_VALUE);
     doc.setTextColor(DARK_GRAY);
-    const commentLines = doc.splitTextToSize(commentText, CONTENT_W - 28);
-    doc.text(commentLines, MARGIN_L + 26, commentsY);
+    const visibleLines = _wrapped.slice(0, COMMENT_MAX_LINES);
+    // Add "…" to the last visible line if we truncated
+    if (_wrapped.length > COMMENT_MAX_LINES && visibleLines.length > 0) {
+      const last = visibleLines[visibleLines.length - 1];
+      visibleLines[visibleLines.length - 1] = last.replace(/\s*\S*$/, '') + ' …';
+    }
+    visibleLines.forEach((line, i) => {
+      doc.text(line, MARGIN_L + COMMENT_INDENT_MM, commentsY + i * COMMENT_LINE_MM);
+    });
   }
 
-  // Draw 3 ruled comment lines
+  // Ruled lines — one per row up to commentLineCount. First ruled line
+  // sits just below the "COMMENTS:" header (2mm below baseline).
   doc.setDrawColor(UNDERLINE_COLOR);
   doc.setLineWidth(0.3);
-  for (let i = 0; i < 3; i++) {
-    const lineY = commentsY + 2 + i * 6;
+  for (let i = 0; i < commentLineCount; i++) {
+    const lineY = commentsY + 2 + i * COMMENT_LINE_MM;
     doc.line(MARGIN_L, lineY, PAGE_W - MARGIN_R, lineY);
   }
 }

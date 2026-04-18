@@ -819,10 +819,10 @@ export default function MapAnnotation({
           </span>
 
           <span style={S.label}>Size</span>
-          <button style={S.btn(false)} onClick={() => scaleAxis('x', 1.15)} title="Make wider">Wider</button>
-          <button style={S.btn(false)} onClick={() => scaleAxis('x', 1 / 1.15)} title="Make narrower">Narrower</button>
-          <button style={S.btn(false)} onClick={() => scaleAxis('y', 1.15)} title="Make taller">Taller</button>
-          <button style={S.btn(false)} onClick={() => scaleAxis('y', 1 / 1.15)} title="Make shorter">Shorter</button>
+          <button style={S.btn(false)} onClick={() => scaleAxis('x', 1.15)} title="Stretch along the pipe direction">Longer</button>
+          <button style={S.btn(false)} onClick={() => scaleAxis('x', 1 / 1.15)} title="Shrink along the pipe direction">Shorter</button>
+          <button style={S.btn(false)} onClick={() => scaleAxis('y', 1.15)} title="Increase thickness across the pipe">Fatter</button>
+          <button style={S.btn(false)} onClick={() => scaleAxis('y', 1 / 1.15)} title="Decrease thickness across the pipe">Thinner</button>
 
           <div style={S.separator} />
 
