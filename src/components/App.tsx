@@ -3,7 +3,7 @@ import type { PrepField, Segment, SegmentObservations, AppProject, AnnotationDat
 import { DEFAULT_OBSERVATIONS } from '../lib/types';
 import { parseExcelFile, rowsToSegments, getWeekRanges, listSheets } from '../lib/excel';
 import type { SheetInfo } from '../lib/excel';
-import { autoMapColumns, fingerprintHeaders } from '../lib/fuzzy';
+import { autoMapColumns, fingerprintHeaders, checkMappingHealth, type MappingWarning } from '../lib/fuzzy';
 import { db, getSavedMapping, saveMapping, saveDraft, getDraft, getProjectDefaults, saveProjectDefaults, getRecentProjects, savePlans, getPlans } from '../lib/db';
 
 // Load pdf.js from CDN via script tag (UMD build sets window.pdfjsLib)
@@ -76,6 +76,10 @@ export default function App() {
   const [plansData, setPlansData] = useState<ArrayBuffer | null>(null);
   const [plansFileName, setPlansFileName] = useState<string | null>(null);
   const [plansNumPages, setPlansNumPages] = useState(0);
+  const [mappingWarnings, setMappingWarnings] = useState<MappingWarning[]>([]);
+
+  // Force-remap flag: bypasses saved mapping fingerprint so column mapper runs again
+  const forceRemapRef = useRef(false);
 
   // Refs to avoid stale closures
   const projectRef = useRef(project);
@@ -88,6 +92,7 @@ export default function App() {
   pendingFileRef.current = pendingFile;
   const pendingMappingRef = useRef(pendingMapping);
   pendingMappingRef.current = pendingMapping;
+  const rawRowsRef = useRef<string[][]>([]);
 
   useEffect(() => {
     getRecentProjects().then(setRecentProjects);
@@ -102,23 +107,35 @@ export default function App() {
       const fingerprint = fingerprintHeaders(headers);
       const savedMap = await getSavedMapping(fingerprint);
 
-      if (savedMap) {
+      if (savedMap && !forceRemapRef.current) {
         console.log('[BLD] Found saved mapping, skipping to settings');
-        const { fallbacks: fb } = autoMapColumns(headers);
-        const segments = rowsToSegments(rows, savedMap.mapping as Record<PrepField, number | null>, fb);
+        forceRemapRef.current = false;
+        const { confident, fallbacks: fb } = autoMapColumns(headers);
+        // Patch saved mapping: auto-fill any fields added after this mapping was originally saved
+        const patchedMapping = { ...savedMap.mapping } as Record<PrepField, number | null>;
+        for (const [field, colIdx] of Object.entries(confident) as [PrepField, number][]) {
+          if (patchedMapping[field] == null) {
+            patchedMapping[field] = colIdx;
+            console.log(`[BLD] Auto-patched missing field '${field}' → col ${colIdx}`);
+          }
+        }
+        const segments = rowsToSegments(rows, patchedMapping, fb);
+        rawRowsRef.current = rows;
+        const warnings = checkMappingHealth(segments, patchedMapping, headers, rows);
         const projectId = (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
         const proj: AppProject = {
           id: projectId,
           name: fileName.replace(/\.(xlsx|xls|csv)$/i, ''),
           fileName,
           segments,
-          columnMapping: savedMap.mapping as Record<PrepField, number | null>,
+          columnMapping: patchedMapping,
           fallbackColumns: fb,
           columnHeaders: headers,
           savedAt: Date.now(),
         };
         const defaults = await getProjectDefaults(projectId);
         setProject(proj);
+        setMappingWarnings(warnings);
         setObservations({});
         setMapData({});
         setPendingFile(null);
@@ -181,6 +198,8 @@ export default function App() {
       console.log('[BLD] Mapping saved, building segments...');
 
       const segments = rowsToSegments(rows, mapping, fallbacks);
+      rawRowsRef.current = rows;
+      const warnings = checkMappingHealth(segments, mapping, headers, rows);
       console.log('[BLD] Built', segments.length, 'segments');
       const projectId = (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const proj: AppProject = {
@@ -195,6 +214,7 @@ export default function App() {
       };
 
       setProject(proj);
+      setMappingWarnings(warnings);
       setPendingMapping(null);
       setObservations({});
       setMapData({});
@@ -208,6 +228,30 @@ export default function App() {
       console.error('[BLD] handleMappingComplete error:', err);
       alert('Error saving mapping: ' + (err instanceof Error ? err.message : String(err)));
     }
+  }, []);
+
+  const handleRemapUpload = useCallback(async (file: File) => {
+    forceRemapRef.current = true;
+    await handleFileUpload(file);
+  }, [handleFileUpload]);
+
+  const handleFixMapping = useCallback(async (field: PrepField, columnIndex: number) => {
+    const proj = projectRef.current;
+    if (!proj) return;
+    const rows = rawRowsRef.current;
+    if (rows.length === 0) return;
+
+    const updatedMapping = { ...proj.columnMapping, [field]: columnIndex };
+    const fb = proj.fallbackColumns ?? {};
+    const segments = rowsToSegments(rows, updatedMapping, fb);
+    const fingerprint = fingerprintHeaders(proj.columnHeaders);
+    await saveMapping({ fingerprint, mapping: updatedMapping, fallbacks: fb, savedAt: Date.now() });
+
+    const updatedProject: AppProject = { ...proj, segments, columnMapping: updatedMapping };
+    setProject(updatedProject);
+
+    const warnings = checkMappingHealth(segments, updatedMapping, proj.columnHeaders, rows);
+    setMappingWarnings(warnings);
   }, []);
 
   const handlePlansUpload = useCallback(async (file: File) => {
@@ -339,6 +383,7 @@ export default function App() {
     setProject(proj);
     setObservations(obs);
     setMapData(maps);
+    setMappingWarnings([]);
     setJobNumber(defaults?.jobNumber ?? '');
     setJobName(defaults?.jobName ?? '');
     setDateFilter({ start: null, end: null });
@@ -449,7 +494,10 @@ export default function App() {
             initialJobNumber={jobNumber}
             initialJobName={jobName}
             plansFileName={plansFileName}
+            mappingWarnings={mappingWarnings}
             onPlansUpload={handlePlansUpload}
+            onRemapUpload={handleRemapUpload}
+            onFixMapping={handleFixMapping}
             onComplete={handleSettingsComplete}
           />
         )}

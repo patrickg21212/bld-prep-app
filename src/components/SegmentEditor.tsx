@@ -49,29 +49,40 @@ export default function SegmentEditor({
     onObservationChange({ ...observations, [key]: val });
   }, [observations, onObservationChange]);
 
-  // Parse sheet number from segment for auto-navigating to the right PDF page
-  const getSheetPage = (): number => {
+  // Parse sheet number — returns [preferredPage, ...otherPages]
+  // "9/10" → [10, 9] (second page = aerial/satellite, preferred)
+  // "9"    → [9]
+  const getSheetPages = (): number[] => {
     const raw = segment.sheetNumber?.trim();
-    if (!raw) return 1;
-    // Handle formats like "9/10" (take first number), "9", "Sheet 9", etc.
-    const match = raw.match(/(\d+)/);
-    return match ? parseInt(match[1], 10) : 1;
+    if (!raw) return [1];
+    const matches = raw.match(/\d+/g);
+    if (!matches) return [1];
+    const pages = matches.map(n => parseInt(n, 10)).filter(n => n > 0 && n < 9999);
+    if (pages.length === 0) return [1];
+    if (pages.length >= 2) {
+      // Prefer the second page (aerial/satellite view in paired-page engineering PDFs)
+      return [pages[1], pages[0]];
+    }
+    return pages;
   };
 
   const handlePlanCrop = useCallback((croppedDataUrl: string, relX: number, relY: number) => {
-    // Create an ellipse annotation at the click point
-    // Load the image to get dimensions for proper ellipse sizing
+    // Drop a neutral circle at the click point. Worker reshapes/rotates/deletes
+    // via the MapAnnotation toolbar — no auto-orientation guessing (plans use
+    // varying colors and layouts, so any guess is wrong half the time).
     const img = new Image();
     img.onload = () => {
       const w = img.width;
       const h = img.height;
+      const r = Math.min(w, h) * 0.1;
       const ellipse: AnnotationData = {
         id: `ellipse-${Date.now()}`,
-        type: 'circle', // Konva Ellipse uses 'circle' type in our schema
+        type: 'circle',
         x: relX * w,
         y: relY * h,
-        radiusX: w * 0.15,  // Start with an oval shape
-        radiusY: w * 0.08,  // Wider than tall
+        radiusX: r,
+        radiusY: r,
+        rotation: 0,
         stroke: '#3B82F6',
         strokeWidth: 3,
       };
@@ -324,9 +335,9 @@ export default function SegmentEditor({
             <button
               onClick={() => setShowPlanViewer(true)}
               style={{
-                background: 'var(--accent-subtle)',
-                border: '1px solid var(--accent)',
-                color: 'var(--accent)',
+                background: segment.sheetNumber ? 'var(--accent-subtle)' : 'rgba(255,255,255,0.05)',
+                border: `1px solid ${segment.sheetNumber ? 'var(--accent)' : 'rgba(255,255,255,0.2)'}`,
+                color: segment.sheetNumber ? 'var(--accent)' : 'var(--text-muted)',
                 borderRadius: 6,
                 padding: '6px 14px',
                 fontSize: 14,
@@ -336,12 +347,14 @@ export default function SegmentEditor({
                 alignItems: 'center',
                 gap: 6,
               }}
+              title={segment.sheetNumber ? `Opens to page ${getSheetPages()[0]} (Sheet ${segment.sheetNumber})` : 'No sheet number mapped — will open to page 1. Type the page number manually in the viewer.'}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
               Crop from Plans
-              {segment.sheetNumber && (
-                <span style={{ opacity: 0.7, fontSize: 13 }}>(Sheet {segment.sheetNumber})</span>
-              )}
+              {segment.sheetNumber
+                ? <span style={{ opacity: 0.7, fontSize: 13 }}>(Sheet {segment.sheetNumber} → pg {getSheetPages()[0]})</span>
+                : <span style={{ opacity: 0.6, fontSize: 12 }}>(no sheet # — type page manually)</span>
+              }
             </button>
           )}
         </div>
@@ -364,13 +377,19 @@ export default function SegmentEditor({
             Loading plans viewer...
           </div>
         }>
-          <PlanViewer
-            pdfData={plansData}
-            initialPage={getSheetPage()}
-            totalPages={plansNumPages}
-            onCrop={handlePlanCrop}
-            onClose={() => setShowPlanViewer(false)}
-          />
+          {(() => {
+            const pages = getSheetPages();
+            return (
+              <PlanViewer
+                pdfData={plansData}
+                initialPage={pages[0]}
+                sheetPages={pages.length > 1 ? pages : undefined}
+                totalPages={plansNumPages}
+                onCrop={handlePlanCrop}
+                onClose={() => setShowPlanViewer(false)}
+              />
+            );
+          })()}
         </Suspense>
       )}
     </div>

@@ -7,6 +7,7 @@ export interface AnnotationData {
   y: number;
   radiusX?: number;
   radiusY?: number;
+  rotation?: number;
   stroke?: string;
   strokeWidth?: number;
   text?: string;

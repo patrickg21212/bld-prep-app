@@ -61,8 +61,22 @@ const FIELD_ALIASES: Record<PrepField, string[]> = {
     'existing material', 'pipe mat', 'lining material',
   ],
   sheetNumber: [
-    'sheet no', 'sheet number', 'sheet #', 'sheet', 'drawing no',
-    'drawing number', 'dwg no', 'dwg', 'map no', 'map number', 'page',
+    // Sheet variants
+    'sheet no', 'sheet number', 'sheet #', 'sheet', 'sheets', 'sheet ref',
+    'sheet nos', 'sheet numbers', 'plan sheet', 'plan sheets', 'plan sheet no',
+    // Drawing variants
+    'drawing no', 'drawing number', 'drawing #', 'drawing', 'drawings',
+    'dwg no', 'dwg number', 'dwg #', 'dwg', 'dwgs', 'draw no', 'drw no',
+    // Map variants
+    'map no', 'map number', 'map #', 'map', 'maps', 'map page', 'map pages',
+    'map pg', 'map sheet', 'map sheets',
+    // Plan/page variants
+    'plan no', 'plan number', 'plan #', 'plan page', 'plan pages', 'plan pg',
+    'plans', 'page', 'pages', 'pg no', 'pg number', 'pg #',
+    // Construction/as-built variants
+    'contract dwg', 'contract drawing', 'contract sheet',
+    'asbuilt sheet', 'as built sheet', 'as-built sheet',
+    'reference sheet', 'plate no', 'plate number', 'plate',
   ],
 };
 
@@ -204,4 +218,95 @@ export function fingerprintHeaders(headers: string[]): string {
     hash |= 0;
   }
   return hash.toString(36);
+}
+
+// ----------- Mapping Health Check -----------
+
+export interface MappingWarning {
+  field: PrepField;
+  fillRate: number;
+  currentColumn: number | null;
+  suggestion: { columnIndex: number; header: string; sampleValues: string[] } | null;
+}
+
+const HEALTH_CHECK_FIELDS: PrepField[] = [
+  'sheetNumber', 'pipeSize', 'pipeLength', 'pipeMaterial', 'usDepth', 'dsDepth',
+];
+
+/**
+ * After mapping is applied, check which fields are poorly populated.
+ * For key fields, attempt value-pattern matching to suggest the correct column.
+ */
+export function checkMappingHealth(
+  segments: Array<Record<string, any>>,
+  mapping: Record<PrepField, number | null>,
+  headers: string[],
+  rows: string[][],
+): MappingWarning[] {
+  if (segments.length === 0) return [];
+
+  const warnings: MappingWarning[] = [];
+  const mappedCols = new Set(
+    Object.values(mapping).filter((v): v is number => v != null)
+  );
+
+  for (const field of HEALTH_CHECK_FIELDS) {
+    const colIdx = mapping[field];
+
+    let filled = 0;
+    for (const seg of segments) {
+      const val = seg[field];
+      if (val != null && String(val).trim() !== '') filled++;
+    }
+    const rate = filled / segments.length;
+    if (rate > 0.3) continue; // 30%+ populated = fine
+
+    let suggestion: MappingWarning['suggestion'] = null;
+    if (field === 'sheetNumber') {
+      suggestion = suggestByPattern(headers, rows, mappedCols, scoreSheetNumber);
+    }
+
+    // Surface warning for key fields or when we have a suggestion
+    if (field === 'sheetNumber' || suggestion) {
+      warnings.push({ field, fillRate: rate, currentColumn: colIdx ?? null, suggestion });
+    }
+  }
+  return warnings;
+}
+
+function suggestByPattern(
+  headers: string[],
+  rows: string[][],
+  mapped: Set<number>,
+  scorer: (vals: string[]) => number,
+): MappingWarning['suggestion'] {
+  let best = 0;
+  let bestIdx = -1;
+
+  for (let i = 0; i < headers.length; i++) {
+    if (mapped.has(i)) continue;
+    const vals = rows.slice(0, 30).map(r => (r[i] ?? '').trim()).filter(Boolean);
+    if (vals.length < 3) continue;
+    const s = scorer(vals);
+    if (s > best) { best = s; bestIdx = i; }
+  }
+
+  if (bestIdx >= 0 && best >= 0.5) {
+    const samples = rows.slice(0, 6).map(r => (r[bestIdx] ?? '').trim()).filter(Boolean);
+    return { columnIndex: bestIdx, header: headers[bestIdx], sampleValues: samples };
+  }
+  return null;
+}
+
+/** Score how likely a set of values are sheet numbers (0-1) */
+function scoreSheetNumber(values: string[]): number {
+  let hits = 0;
+  for (const v of values) {
+    if (v.length > 10) continue;
+    if (/^\d{1,3}$/.test(v) || /^\d{1,3}\/\d{1,3}/.test(v) ||
+        /^[A-Za-z]\d{1,3}$/.test(v) || /^[A-Za-z0-9]{1,3}-[A-Za-z0-9]{1,3}$/.test(v)) {
+      hits++;
+    }
+  }
+  return values.length > 0 ? hits / values.length : 0;
 }

@@ -560,6 +560,51 @@ export default function MapAnnotation({
     [annotations, commitAnnotations],
   );
 
+  /* ---- selected-ellipse edit helpers (touch-friendly buttons) ----- */
+  const selectedEllipse = useMemo(
+    () => annotations.find((a) => a.id === selectedId && a.type === 'circle') ?? null,
+    [annotations, selectedId],
+  );
+
+  const mutateSelected = useCallback(
+    (patch: (a: AnnotationData) => AnnotationData) => {
+      if (!selectedId) return;
+      const prev = [...annotations];
+      const next = annotations.map((a) => (a.id === selectedId ? patch(a) : a));
+      commitAnnotations(next, prev);
+    },
+    [annotations, selectedId, commitAnnotations],
+  );
+
+  const scaleAxis = useCallback(
+    (axis: 'x' | 'y', factor: number) => {
+      mutateSelected((a) => {
+        const key = axis === 'x' ? 'radiusX' : 'radiusY';
+        const current = a[key] ?? 20;
+        const nextVal = Math.max(4, Math.min(current * factor, 4000));
+        return { ...a, [key]: nextVal };
+      });
+    },
+    [mutateSelected],
+  );
+
+  const rotateSelected = useCallback(
+    (delta: number) => {
+      mutateSelected((a) => ({ ...a, rotation: ((a.rotation ?? 0) + delta) % 360 }));
+    },
+    [mutateSelected],
+  );
+
+  const deleteSelected = useCallback(() => {
+    if (!selectedId) return;
+    const prev = [...annotations];
+    commitAnnotations(
+      annotations.filter((a) => a.id !== selectedId),
+      prev,
+    );
+    setSelectedId(null);
+  }, [annotations, selectedId, commitAnnotations]);
+
   /* ---- commit text label ------------------------------------------ */
   const commitText = useCallback(() => {
     if (!textInput || !textValue.trim()) {
@@ -723,6 +768,42 @@ export default function MapAnnotation({
         </button>
       </div>
 
+      {/* Contextual edit toolbar: appears only when an ellipse is selected */}
+      {selectedEllipse && (
+        <div style={{ ...S.toolbar, background: 'rgba(47,129,247,0.08)' }}>
+          <span style={{ color: 'var(--text-primary, #e6edf3)', fontSize: 14, fontWeight: 600, marginRight: 8 }}>
+            Edit circle
+          </span>
+
+          <span style={S.label}>Size</span>
+          <button style={S.btn(false)} onClick={() => scaleAxis('x', 1.15)} title="Make wider">Wider</button>
+          <button style={S.btn(false)} onClick={() => scaleAxis('x', 1 / 1.15)} title="Make narrower">Narrower</button>
+          <button style={S.btn(false)} onClick={() => scaleAxis('y', 1.15)} title="Make taller">Taller</button>
+          <button style={S.btn(false)} onClick={() => scaleAxis('y', 1 / 1.15)} title="Make shorter">Shorter</button>
+
+          <div style={S.separator} />
+
+          <span style={S.label}>Rotate</span>
+          <button style={S.btn(false)} onClick={() => rotateSelected(-15)} title="Rotate 15° counter-clockwise">Rotate −15°</button>
+          <button style={S.btn(false)} onClick={() => rotateSelected(15)} title="Rotate 15° clockwise">Rotate +15°</button>
+          <button style={S.btn(false)} onClick={() => rotateSelected(90)} title="Rotate 90°">Rotate 90°</button>
+
+          <div style={S.separator} />
+
+          <button
+            style={{ ...S.btn(false), color: '#ff6b6b', borderColor: '#ff6b6b' }}
+            onClick={deleteSelected}
+            title="Delete this circle"
+          >
+            Delete
+          </button>
+
+          <span style={{ marginLeft: 'auto', color: 'var(--text-secondary, #8b949e)', fontSize: 12 }}>
+            Drag to move · click outside to deselect
+          </span>
+        </div>
+      )}
+
       {/* Canvas area */}
       <div
         ref={containerRef}
@@ -764,6 +845,7 @@ export default function MapAnnotation({
                     y={ann.y}
                     radiusX={ann.radiusX ?? 20}
                     radiusY={ann.radiusY ?? 20}
+                    rotation={ann.rotation ?? 0}
                     stroke={ann.stroke ?? activeColor}
                     strokeWidth={ann.strokeWidth ?? 3}
                     fill="transparent"

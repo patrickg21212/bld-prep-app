@@ -113,6 +113,16 @@ Excel Upload → Column Auto-Mapper → Date Range Filter (weekly batch)
 - [x] PDF preview screen (PdfPreview.tsx)
 - [x] Batch export (combined PDF or ZIP of individuals) (BatchExport.tsx)
 - [x] North arrow auto-placement in schematic section
+- [x] Plans PDF upload — click-to-crop map section from engineering PDF (PlanViewer.tsx)
+- [x] Auto-navigate to correct map page from sheetNumber field (satellite page preferred for "9/10" format)
+- [x] Stitch mode — crop from two pages side-by-side for split segments
+- [x] Re-map columns option in ProjectSettings (bypasses fingerprint cache)
+- [x] sheetNumber field (SHEET #) — broad fuzzy alias set, auto-patching of saved mappings
+- [x] Date range filter bug fixed (null-date segments excluded when filter active)
+- [x] TIME field removed from PDF output
+- [x] Auto-ellipse annotation on map crops — blue (#3B82F6), neutral circle (no orientation guessing)
+- [x] Worker edit controls for selected circle — Wider/Narrower/Taller/Shorter, Rotate ±15°/90°, Delete (touch-friendly)
+- [x] `rotation` field added to AnnotationData, Ellipse honors it in render
 - [ ] Tauri integration for standalone Windows .exe
 - [ ] License key / activation system
 - [ ] Final UI polish pass (animations, loading states, edge cases)
@@ -163,7 +173,11 @@ Excel Upload → Column Auto-Mapper → Date Range Filter (weekly batch)
 | 2026-04-07 | Elon | Created full product spec, field mapping from real Excel data |
 | 2026-04-07 | Byte | Scaffolded project, built core components and libraries |
 | 2026-04-07 | Dude | Parallel build: MapAnnotation, PDF gen, Excel testing. Integrated all. Full build passing. |
-| | | |
+| 2026-04-08 | Dude | sheetNumber field, date alias fixes, date range filter bug, TIME field removal |
+| 2026-04-09 | Dude | Plans PDF upload, PlanViewer (pdf.js v3 UMD script tag), IndexedDB ArrayBuffer fix |
+| 2026-04-14 | Dude | Satellite page preference (2nd page of "9/10"), stitch mode, remap columns, broader sheetNumber aliases, page number input in viewer |
+| 2026-04-14 | Dude | Deployed to GitHub + Vercel staging: https://bld-prep-staging.vercel.app |
+| 2026-04-16 | Dude | Dropped auto-orientation (plans aren't always red); auto-crop now places neutral circle. Added worker edit toolbar: Wider/Narrower/Taller/Shorter, Rotate ±15°/90°, Delete. AnnotationData gained `rotation`. |
 
 **UPDATE THIS TABLE** after every session that modifies the app.
 
