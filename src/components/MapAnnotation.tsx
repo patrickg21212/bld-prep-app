@@ -161,7 +161,18 @@ export default function MapAnnotation({
 
   useEffect(() => {
     if (initialAnnotations !== undefined) {
-      setAnnotations(initialAnnotations ?? []);
+      const next = initialAnnotations ?? [];
+      setAnnotations(next);
+      // Auto-select newly-placed ellipse from a Plans crop so the Edit
+      // Circle toolbar surfaces immediately — otherwise users don't realize
+      // the auto-circle is editable (reshape, rotate, delete).
+      const autoEllipse = next.find(
+        (a) => a.type === 'circle' && a.id.startsWith('ellipse-'),
+      );
+      if (autoEllipse && next.length === 1) {
+        setSelectedId(autoEllipse.id);
+        setTool('select');
+      }
     }
   }, [initialAnnotations]);
 
