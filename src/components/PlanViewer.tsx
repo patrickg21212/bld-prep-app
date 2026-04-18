@@ -55,7 +55,15 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
 
   const pdfDocRef = useRef<any>(null);
   const pageDataRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+  const renderTaskRef = useRef<any>(null);
   const [docReady, setDocReady] = useState(false);
+
+  // Sync page when initialPage prop changes (different segment opened)
+  useEffect(() => {
+    const docPages = pdfDocRef.current?.numPages;
+    const clamped = docPages ? Math.max(1, Math.min(initialPage, docPages)) : initialPage;
+    setPage(clamped);
+  }, [initialPage]);
 
   // Load PDF document
   useEffect(() => {
@@ -71,8 +79,8 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
         if (cancelled) return;
         pdfDocRef.current = doc;
         setNumPages(doc.numPages);
-        const clamped = Math.max(1, Math.min(page, doc.numPages));
-        if (clamped !== page) setPage(clamped);
+        const clamped = Math.max(1, Math.min(initialPage, doc.numPages));
+        setPage(clamped);
         setDocReady(true);
       } catch (e) {
         if (!cancelled) setError('Failed to load PDF: ' + (e instanceof Error ? e.message : String(e)));
@@ -83,26 +91,43 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
     return () => { cancelled = true; };
   }, [pdfData]);
 
-  // Render current page
+  // Render current page — cancel any in-flight render before starting a new one
   useEffect(() => {
     if (!docReady) return;
     let cancelled = false;
     async function doRender() {
       const doc = pdfDocRef.current;
       if (!doc || !canvasRef.current) return;
+
+      // Cancel previous render before touching the canvas (pdf.js can't share a canvas mid-render)
+      if (renderTaskRef.current) {
+        try { renderTaskRef.current.cancel(); } catch {}
+        renderTaskRef.current = null;
+      }
+
       try {
         setLoading(true);
         const pdfPage = await doc.getPage(page);
         if (cancelled) return;
         const viewport = pdfPage.getViewport({ scale: RENDER_SCALE });
         const canvas = canvasRef.current;
+        if (!canvas) return;
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         pageDataRef.current = { width: viewport.width, height: viewport.height };
 
         const ctx = canvas.getContext('2d')!;
-        await pdfPage.render({ canvasContext: ctx, viewport }).promise;
+        const task = pdfPage.render({ canvasContext: ctx, viewport });
+        renderTaskRef.current = task;
+        try {
+          await task.promise;
+        } catch (e: any) {
+          // pdf.js throws RenderingCancelledException when cancel() wins — ignore
+          if (e?.name === 'RenderingCancelledException') return;
+          throw e;
+        }
         if (cancelled) return;
+        renderTaskRef.current = null;
 
         // Auto-fit: calculate zoom to fit page in container
         const container = containerRef.current;
@@ -126,7 +151,13 @@ export default function PlanViewer({ pdfData, initialPage, totalPages, onCrop, o
       }
     }
     doRender();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (renderTaskRef.current) {
+        try { renderTaskRef.current.cancel(); } catch {}
+        renderTaskRef.current = null;
+      }
+    };
   }, [page, docReady]);
 
   // Reset crop marker when page changes
