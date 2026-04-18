@@ -247,19 +247,29 @@ export default function MapAnnotation({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
+  // Save the annotations array IMMEDIATELY on every change. The composite
+  // image (circle baked into the map PNG, for PDF export) is generated
+  // asynchronously below — if that async work is interrupted (navigation,
+  // unmount), the annotations themselves are already persisted and will
+  // re-render from state on next visit.
   useEffect(() => {
-    const stage = stageRef.current;
-    if (stage && loadedImage && annotations.length > 0) {
-      // Short delay so Konva renders the latest annotations before export
-      const timer = setTimeout(() => {
-        const composite = stageRef.current?.toDataURL({ pixelRatio: 2 }) ?? null;
+    onChangeRef.current(imageDataUrl, imageDataUrl, annotations);
+    // Intentionally excluding onChange from deps — we want this to fire on
+    // every real state change, not every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageDataUrl, annotations]);
+
+  // Composite generation: runs after Konva has painted, bakes annotations
+  // into the exported image so the PDF preview shows them.
+  useEffect(() => {
+    if (!loadedImage || annotations.length === 0) return;
+    const raf = requestAnimationFrame(() => {
+      const composite = stageRef.current?.toDataURL({ pixelRatio: 2 });
+      if (composite) {
         onChangeRef.current(composite, imageDataUrl, annotations);
-      }, 100);
-      return () => clearTimeout(timer);
-    } else {
-      // No annotations yet — composite = raw image
-      onChangeRef.current(imageDataUrl, imageDataUrl, annotations);
-    }
+      }
+    });
+    return () => cancelAnimationFrame(raf);
   }, [imageDataUrl, annotations, loadedImage]);
 
   /* ---- load image from data URL ----------------------------------- */

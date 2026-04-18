@@ -275,7 +275,23 @@ function formatDate(segment: Segment): string {
 
 // ── Core rendering function (draws one page onto a jsPDF doc) ───────────────
 function renderPage(doc: jsPDF, input: PdfInput): void {
-  const { segment, observations, jobNumber, jobName, mapImageDataUrl } = input;
+  const { segment: rawSegment, observations, jobNumber, jobName, mapImageDataUrl } = input;
+
+  // Apply per-segment field overrides from observations so any manual edits
+  // the worker made on the prep sheet show up on the exported PDF.
+  const ov = observations.fieldOverrides ?? {};
+  const segment: Segment = {
+    ...rawSegment,
+    dateStr: ov.dateStr ?? rawSegment.dateStr,
+    repairNumber: ov.repairNumber ?? rawSegment.repairNumber,
+    pipeSize: ov.pipeSize ?? rawSegment.pipeSize,
+    pipeLength: ov.pipeLength ?? rawSegment.pipeLength,
+    streetName: ov.streetName ?? rawSegment.streetName,
+    usDepth: ov.usDepth ?? rawSegment.usDepth,
+    dsDepth: ov.dsDepth ?? rawSegment.dsDepth,
+    mhFrom: ov.mhFrom ?? rawSegment.mhFrom,
+    mhTo: ov.mhTo ?? rawSegment.mhTo,
+  };
 
   let y = 10;
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useState, lazy, Suspense } from 'react';
-import type { Segment, SegmentObservations, TrafficLevel, WaterFlow, MhLocation, AnnotationData } from '../lib/types';
+import type { Segment, SegmentObservations, SegmentFieldKey, TrafficLevel, WaterFlow, MhLocation, AnnotationData } from '../lib/types';
 import MapAnnotation from './MapAnnotation';
 
 const PlanViewer = lazy(() => import('./PlanViewer'));
@@ -47,6 +47,25 @@ export default function SegmentEditor({
 
   const set = useCallback(<K extends keyof SegmentObservations>(key: K, val: SegmentObservations[K]) => {
     onObservationChange({ ...observations, [key]: val });
+  }, [observations, onObservationChange]);
+
+  // Per-field overrides — segment fields pulled from the spreadsheet can be
+  // edited on the prep sheet. Override is stored in observations.fieldOverrides.
+  const fieldValue = (key: SegmentFieldKey, fallback: string): string => {
+    const override = observations.fieldOverrides?.[key];
+    return override !== undefined ? override : fallback;
+  };
+  const setFieldOverride = useCallback((key: SegmentFieldKey, val: string, fallback: string) => {
+    const existing = observations.fieldOverrides ?? {};
+    const next = { ...existing };
+    // If user clears override back to the original value, drop the override
+    // entirely so the prep sheet re-follows the spreadsheet on future edits.
+    if (val === fallback) {
+      delete next[key];
+    } else {
+      next[key] = val;
+    }
+    onObservationChange({ ...observations, fieldOverrides: next });
   }, [observations, onObservationChange]);
 
   // Parse sheet number — returns [preferredPage, ...otherPages]
@@ -144,15 +163,15 @@ export default function SegmentEditor({
         <div>
           <SectionHeader>Auto-Populated from Excel</SectionHeader>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <ReadOnlyField label="DATE" value={segment.dateStr} />
-            <ReadOnlyField label="REPAIR #" value={segment.repairNumber} />
-            <ReadOnlyField label="PIPE SIZE" value={segment.pipeSize} />
-            <ReadOnlyField label="PIPE LENGTH" value={segment.pipeLength} />
-            <ReadOnlyField label="STREET NAME" value={segment.streetName} />
-            <ReadOnlyField label="U.S. DEPTH" value={segment.usDepth} />
-            <ReadOnlyField label="D.S. DEPTH" value={segment.dsDepth} />
-            <ReadOnlyField label="M/H # FROM" value={segment.mhFrom} />
-            <ReadOnlyField label="M/H # TO" value={segment.mhTo} />
+            <EditableField label="DATE" value={fieldValue('dateStr', segment.dateStr)} sheetValue={segment.dateStr} onChange={(v) => setFieldOverride('dateStr', v, segment.dateStr)} />
+            <EditableField label="REPAIR #" value={fieldValue('repairNumber', segment.repairNumber)} sheetValue={segment.repairNumber} onChange={(v) => setFieldOverride('repairNumber', v, segment.repairNumber)} />
+            <EditableField label="PIPE SIZE" value={fieldValue('pipeSize', segment.pipeSize)} sheetValue={segment.pipeSize} onChange={(v) => setFieldOverride('pipeSize', v, segment.pipeSize)} />
+            <EditableField label="PIPE LENGTH" value={fieldValue('pipeLength', segment.pipeLength)} sheetValue={segment.pipeLength} onChange={(v) => setFieldOverride('pipeLength', v, segment.pipeLength)} />
+            <EditableField label="STREET NAME" value={fieldValue('streetName', segment.streetName)} sheetValue={segment.streetName} onChange={(v) => setFieldOverride('streetName', v, segment.streetName)} />
+            <EditableField label="U.S. DEPTH" value={fieldValue('usDepth', segment.usDepth)} sheetValue={segment.usDepth} onChange={(v) => setFieldOverride('usDepth', v, segment.usDepth)} />
+            <EditableField label="D.S. DEPTH" value={fieldValue('dsDepth', segment.dsDepth)} sheetValue={segment.dsDepth} onChange={(v) => setFieldOverride('dsDepth', v, segment.dsDepth)} />
+            <EditableField label="M/H # FROM" value={fieldValue('mhFrom', segment.mhFrom)} sheetValue={segment.mhFrom} onChange={(v) => setFieldOverride('mhFrom', v, segment.mhFrom)} />
+            <EditableField label="M/H # TO" value={fieldValue('mhTo', segment.mhTo)} sheetValue={segment.mhTo} onChange={(v) => setFieldOverride('mhTo', v, segment.mhTo)} />
             {segment.comments && (
               <ReadOnlyField label="COMMENTS (EXCEL)" value={segment.comments} multiline />
             )}
@@ -424,6 +443,53 @@ function ReadOnlyField({ label, value, multiline }: { label: string; value: stri
       <span style={{ color: value ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: 14 }}>
         {value || '—'}
       </span>
+    </div>
+  );
+}
+
+function EditableField({
+  label, value, sheetValue, onChange,
+}: { label: string; value: string; sheetValue: string; onChange: (v: string) => void }) {
+  const isOverridden = value !== sheetValue;
+  return (
+    <div style={{
+      background: 'var(--bg-card)',
+      border: `1px solid ${isOverridden ? 'var(--accent)' : 'var(--border)'}`,
+      borderRadius: 6, padding: '8px 12px',
+      display: 'flex', alignItems: 'center', gap: 10,
+    }}>
+      <span style={{
+        color: 'var(--text-muted)', fontSize: 14, fontWeight: 600,
+        textTransform: 'uppercase', letterSpacing: '0.04em',
+        minWidth: 100, flexShrink: 0,
+      }}>
+        {label}
+      </span>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={sheetValue ? undefined : '—'}
+        style={{
+          flex: 1, minWidth: 0, background: 'transparent', border: 'none',
+          color: value ? 'var(--text-primary)' : 'var(--text-muted)',
+          fontSize: 14, padding: 0, outline: 'none',
+          fontWeight: isOverridden ? 600 : 400,
+        }}
+      />
+      {isOverridden && (
+        <span
+          title={`Sheet value: ${sheetValue || '(empty)'} — click to revert`}
+          onClick={() => onChange(sheetValue)}
+          style={{
+            color: 'var(--accent)', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            padding: '2px 6px', borderRadius: 4, background: 'var(--accent-subtle)',
+            flexShrink: 0,
+          }}
+        >
+          EDITED
+        </span>
+      )}
     </div>
   );
 }

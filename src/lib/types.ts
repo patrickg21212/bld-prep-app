@@ -79,6 +79,17 @@ export type TrafficLevel = 'LIGHT' | 'MEDIUM' | 'HIGH' | '';
 export type WaterFlow = 'LIGHT' | 'MEDIUM' | 'HIGH' | '';
 export type MhLocation = 'STREET' | 'EASEMENT' | '';
 
+export type SegmentFieldKey =
+  | 'dateStr'
+  | 'repairNumber'
+  | 'pipeSize'
+  | 'pipeLength'
+  | 'streetName'
+  | 'usDepth'
+  | 'dsDepth'
+  | 'mhFrom'
+  | 'mhTo';
+
 export interface SegmentObservations {
   traffic: TrafficLevel;
   waterFlow: WaterFlow;
@@ -94,6 +105,10 @@ export interface SegmentObservations {
   blowToilets: boolean | null;
   toiletAddresses: string;
   notes: string;
+  // Per-segment manual overrides for fields that came from the spreadsheet.
+  // Useful when the sheet is incomplete (e.g., missing PIPE SIZE) — worker
+  // types the correct value on the prep sheet without editing the Excel.
+  fieldOverrides?: Partial<Record<SegmentFieldKey, string>>;
 }
 
 export interface SegmentDraft {
