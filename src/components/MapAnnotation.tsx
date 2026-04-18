@@ -539,8 +539,26 @@ export default function MapAnnotation({
 
   const onPanStart = useCallback(
     (e: React.MouseEvent) => {
-      // Middle click, or left click in select mode with no image target
-      if (e.button === 1 || (tool === 'select' && e.button === 0)) {
+      // Middle-click always pans. Left-click pans only in select mode AND
+      // only when the click is on the map image, not on an annotation —
+      // otherwise the pan handler hijacks mousedowns meant for dragging a
+      // shape, and the ellipse appears welded to the map.
+      if (e.button === 1) {
+        isPanning.current = true;
+        panStart.current = { x: e.clientX - position.x, y: e.clientY - position.y };
+        return;
+      }
+      if (tool === 'select' && e.button === 0) {
+        const stage = stageRef.current;
+        if (!stage) return;
+        const pointer = stage.getPointerPosition();
+        if (!pointer) return;
+        const hit = stage.getIntersection(pointer);
+        // getIntersection returns the topmost shape under the cursor. If
+        // that's a shape (Ellipse/Text), let Konva drag it. Only pan when
+        // the hit is empty or the background Image.
+        const hitClass = hit?.getClassName();
+        if (hit && hitClass !== 'Image') return;
         isPanning.current = true;
         panStart.current = { x: e.clientX - position.x, y: e.clientY - position.y };
       }
