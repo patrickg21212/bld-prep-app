@@ -66,29 +66,14 @@ export default function SegmentEditor({
     return pages;
   };
 
-  const handlePlanCrop = useCallback((croppedDataUrl: string, relX: number, relY: number) => {
-    // Drop a neutral circle at the click point. Worker reshapes/rotates/deletes
-    // via the MapAnnotation toolbar — no auto-orientation guessing (plans use
-    // varying colors and layouts, so any guess is wrong half the time).
-    const img = new Image();
-    img.onload = () => {
-      const w = img.width;
-      const h = img.height;
-      const r = Math.min(w, h) * 0.1;
-      const ellipse: AnnotationData = {
-        id: `ellipse-${Date.now()}`,
-        type: 'circle',
-        x: relX * w,
-        y: relY * h,
-        radiusX: r,
-        radiusY: r,
-        rotation: 0,
-        stroke: '#3B82F6',
-        strokeWidth: 3,
-      };
-      onMapChange(null, croppedDataUrl, [ellipse]);
-    };
-    img.src = croppedDataUrl;
+  const handlePlanCrop = useCallback((croppedDataUrl: string, _relX: number, _relY: number) => {
+    // Don't auto-place an ellipse — pipe segments are straight lines at
+    // arbitrary angles, and any guessed placement ended up wrong 100% of the
+    // time (wrong center, wrong orientation, wrong length/thickness). Hand
+    // the user the crop with no annotations and switch MapAnnotation into
+    // Draw-Ellipse mode so they can drag from one end of the pipe to the
+    // other — that yields a correctly-aligned ellipse in one gesture.
+    onMapChange(null, croppedDataUrl, []);
     setShowPlanViewer(false);
   }, [onMapChange]);
 

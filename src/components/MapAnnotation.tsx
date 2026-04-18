@@ -155,24 +155,22 @@ export default function MapAnnotation({
   // Sync when initialImage/initialAnnotations change from outside (e.g. PlanViewer crop)
   useEffect(() => {
     if (initialImage !== undefined) {
+      const hadImageBefore = imageDataUrl !== null;
       setImageDataUrl(initialImage ?? null);
+      // When a fresh crop arrives, drop straight into ellipse-draw mode so
+      // the worker can drag from one end of the pipe to the other and get a
+      // correctly-oriented annotation in a single gesture. Auto-placement
+      // always guessed wrong, so we hand them the tool instead.
+      if (initialImage && !hadImageBefore) {
+        setTool('circle');
+        setSelectedId(null);
+      }
     }
   }, [initialImage]);
 
   useEffect(() => {
     if (initialAnnotations !== undefined) {
-      const next = initialAnnotations ?? [];
-      setAnnotations(next);
-      // Auto-select newly-placed ellipse from a Plans crop so the Edit
-      // Circle toolbar surfaces immediately — otherwise users don't realize
-      // the auto-circle is editable (reshape, rotate, delete).
-      const autoEllipse = next.find(
-        (a) => a.type === 'circle' && a.id.startsWith('ellipse-'),
-      );
-      if (autoEllipse && next.length === 1) {
-        setSelectedId(autoEllipse.id);
-        setTool('select');
-      }
+      setAnnotations(initialAnnotations ?? []);
     }
   }, [initialAnnotations]);
 
@@ -453,10 +451,20 @@ export default function MapAnnotation({
       if (!pointer) return;
       const canvasPos = screenToCanvas(pointer.x, pointer.y);
 
-      const rx = Math.abs(canvasPos.x - drawOrigin.x) / 2;
-      const ry = Math.abs(canvasPos.y - drawOrigin.y) / 2;
+      // Drag from A → B draws an ellipse *along* that line, rotated to match.
+      // Pipe segments are straight lines (horizontal, vertical, or diagonal),
+      // so the major axis tracks the drag direction and the minor axis is a
+      // fixed-ish thickness that the worker tunes with Taller/Shorter.
+      const dx = canvasPos.x - drawOrigin.x;
+      const dy = canvasPos.y - drawOrigin.y;
+      const length = Math.sqrt(dx * dx + dy * dy);
       const cx = (canvasPos.x + drawOrigin.x) / 2;
       const cy = (canvasPos.y + drawOrigin.y) / 2;
+      const rotationDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+      const rx = length / 2;
+      // Default thickness = 22% of length, with min/max so short segments
+      // still read as ovals and long ones don't balloon.
+      const ry = Math.max(8, Math.min(rx * 0.22, 60));
 
       setDrawPreview({
         id: '__preview__',
@@ -465,6 +473,7 @@ export default function MapAnnotation({
         y: cy,
         radiusX: rx,
         radiusY: ry,
+        rotation: rotationDeg,
         stroke: activeColor,
         strokeWidth: activeStroke,
       });
@@ -713,7 +722,7 @@ export default function MapAnnotation({
         <button style={S.btn(tool === 'select')} onClick={() => setTool('select')} title="Select / Pan">
           Select
         </button>
-        <button style={S.btn(tool === 'circle')} onClick={() => setTool('circle')} title="Draw circle / ellipse">
+        <button style={S.btn(tool === 'circle')} onClick={() => setTool('circle')} title="Draw ellipse — drag from one end of the pipe segment to the other">
           Circle
         </button>
         <button style={S.btn(tool === 'text')} onClick={() => setTool('text')} title="Add text label">
