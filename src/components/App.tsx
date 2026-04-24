@@ -401,7 +401,13 @@ export default function App() {
     setScreen('editor');
   }, []);
 
-  const handleObservationChange = useCallback(async (
+  // Debounce timer per segmentId so rapid-fire keystrokes coalesce into one
+  // IndexedDB write per ~400ms idle window. Without this, every character
+  // typed fired a synchronous saveDraft including the giant base64 map
+  // composite — the dominant cause of the "sticky" feel after a few edits.
+  const saveDraftTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  const handleObservationChange = useCallback((
     segmentId: string,
     obsOrUpdater: SegmentObservations | ((prev: SegmentObservations) => SegmentObservations),
   ) => {
@@ -413,29 +419,33 @@ export default function App() {
     // compose correctly. Without this, two updates built from stale closures
     // would clobber each other — which is how previously-typed pipe size /
     // street name overrides were disappearing by the time of PDF export.
-    let resolvedObs: SegmentObservations | null = null;
     setObservations(prev => {
       const prevForSegment = prev[segmentId] ?? { ...DEFAULT_OBSERVATIONS };
       const nextObs =
         typeof obsOrUpdater === 'function'
           ? (obsOrUpdater as (p: SegmentObservations) => SegmentObservations)(prevForSegment)
           : obsOrUpdater;
-      resolvedObs = nextObs;
       return { ...prev, [segmentId]: nextObs };
     });
 
-    // Persist to IndexedDB with the just-resolved observations so the draft
-    // on disk always matches what's on screen.
-    if (!resolvedObs) return;
-    const map = mapDataRef.current[segmentId];
-    await saveDraft({
-      projectId: proj.id,
-      segmentId,
-      observations: resolvedObs,
-      mapImageDataUrl: map?.imageDataUrl ?? undefined,
-      mapAnnotations: map?.annotations ?? undefined,
-      savedAt: Date.now(),
-    });
+    // Debounced persist. The map composite is owned by handleMapChange
+    // (which writes its own draft on annotation edits) — observations-only
+    // edits don't need to ship the multi-MB base64 image with every keystroke.
+    if (saveDraftTimers.current[segmentId]) {
+      clearTimeout(saveDraftTimers.current[segmentId]);
+    }
+    saveDraftTimers.current[segmentId] = setTimeout(() => {
+      const obs = observationsRef.current[segmentId];
+      if (!obs) return;
+      saveDraft({
+        projectId: proj.id,
+        segmentId,
+        observations: obs,
+        mapAnnotations: mapDataRef.current[segmentId]?.annotations,
+        savedAt: Date.now(),
+      });
+      delete saveDraftTimers.current[segmentId];
+    }, 400);
   }, []);
 
   const handleMapChange = useCallback(async (segmentId: string, compositeUrl: string | null, rawUrl: string | null, anns: AnnotationData[]) => {

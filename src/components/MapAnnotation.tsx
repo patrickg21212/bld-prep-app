@@ -247,40 +247,30 @@ export default function MapAnnotation({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
-  // Save the annotations array IMMEDIATELY on every change. The composite
-  // image (circle baked into the map PNG, for PDF export) is generated
-  // asynchronously below — if that async work is interrupted (navigation,
-  // unmount), the annotations themselves are already persisted and will
-  // re-render from state on next visit.
-  useEffect(() => {
-    onChangeRef.current(imageDataUrl, imageDataUrl, annotations);
-    // Intentionally excluding onChange from deps — we want this to fire on
-    // every real state change, not every parent render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageDataUrl, annotations]);
-
-  // Composite generation: runs after Konva has painted, bakes annotations
-  // into the exported image so the PDF preview shows them.
+  // Single onChange propagation per real state change. Earlier code fired
+  // TWO effects on the same deps — first with the raw image as composite,
+  // then a RAF later with the actual composite. That doubled the parent
+  // state cascades (each pushed a multi-MB base64 string through setState)
+  // and ballooned memory pressure across edits.
   //
   // Defensive: if the user is mid-drag (drawing === true), do NOT call
-  // toDataURL — it's a synchronous full-canvas read that reliably causes
-  // visible flicker on the preview shape mid-drag. The dep list means this
-  // effect shouldn't fire during a drag at all (annotations/imageDataUrl
-  // don't change until mouseup), but belt-and-suspenders prevents any
-  // future refactor from accidentally wiring it into the drag path.
+  // toDataURL — it's a synchronous full-canvas read that flickers the
+  // preview shape mid-drag. Skip the composite for empty annotations too
+  // (no circle to bake) — just hand back the raw image.
   useEffect(() => {
     if (!loadedImage) return;
     if (drawing) return;
-    // When annotations are cleared (user deleted the last one), the previously
-    // saved composite still has the baked-in circle — exported PDFs would show
-    // a ghost mark. Overwrite the composite with the raw image so the stale
-    // pixels are flushed. Do NOT early-return without updating.
     if (annotations.length === 0) {
+      // No annotations: composite IS the raw image. Avoid an unnecessary
+      // toDataURL (and the duplicate base64 it would produce in state).
       onChangeRef.current(imageDataUrl, imageDataUrl, []);
       return;
     }
     const raf = requestAnimationFrame(() => {
-      const composite = stageRef.current?.toDataURL({ pixelRatio: 2 });
+      // pixelRatio: 1 (was 2). The composite is consumed by the PDF
+      // renderer at letter size — pixelRatio 2 produced ~4x the data the
+      // PDF could display. Cuts each composite from ~5-10MB to ~1.2-2.5MB.
+      const composite = stageRef.current?.toDataURL({ pixelRatio: 1 });
       if (composite) {
         onChangeRef.current(composite, imageDataUrl, annotations);
       }
