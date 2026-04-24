@@ -20,12 +20,8 @@ Standalone Windows app that automates BLD Services' CIPP liner prep sheet workfl
 - Patrick works at **BLD Services LLC** as camera tech supervisor (sewer line CIPP inspections)
 - BLD is owned by **Azuria Corporation** (billion-dollar company)
 - Patrick's prep sheet method is already recognized as superior (typed, map images, clean PDFs)
-- At the supervisor meeting, Patrick presents his method to the entire company
-- The app turns his manual process into a 60-second-per-segment workflow
-- **Opportunity:** License the app to BLD/Azuria (hundreds/thousands of techs)
-- **BLD has a tech division** (1-2 people, mostly SQL) who will scrutinize the app
-- **Patrick will NOT show the app until they agree to pay**
-- VP of the company will be at the meeting (known investor, tech-curious, uses Grok)
+- **App is now given FREE to BLD — Azuria owns the IP per the employee handbook.** No licensing, no activation, no paywall. Strategy is to use it as a relationship builder and land **paid follow-on apps** (other internal workflows, GIS integrations, tech portals).
+- Patrick already demo'd to the supervisor team; the 2026-04-21 push updates the form to the 2026 BLD Mainline Prep layout + adds operator tagging, full field editing, and no-spreadsheet manual mode.
 
 ---
 
@@ -123,8 +119,12 @@ Excel Upload → Column Auto-Mapper → Date Range Filter (weekly batch)
 - [x] Auto-ellipse annotation on map crops — blue (#3B82F6), neutral circle (no orientation guessing)
 - [x] Worker edit controls for selected circle — Wider/Narrower/Taller/Shorter, Rotate ±15°/90°, Delete (touch-friendly)
 - [x] `rotation` field added to AnnotationData, Ellipse honors it in render
-- [ ] Tauri integration for standalone Windows .exe
-- [ ] License key / activation system
+- [x] **2026-04-21: New BLD Mainline Prep 2026 form format** — USMH/DSMH labels, USMH/DSMH DEPTH, PIPE MATERIAL on form, no TRAFFIC, no HYDRANT LOCATION, BLOWN TOILETS (no pink), 5 fixed ruled comment lines, larger sketch area
+- [x] **2026-04-21: Session-level OPERATOR** — required before PDF export, sessionStorage-persisted, rendered in top header of every PDF
+- [x] **2026-04-21: Every field editable** — all Segment fields (date, repair #, pipe size/length/material, street, depths, MHs, sheet #, comments) accept overrides via `fieldOverrides`; PDF renderer precedence pattern extended; subtle "EDITED" cue on overridden fields with click-to-revert
+- [x] **2026-04-21: No-Spreadsheet mode** — HomeScreen "New Prep Sheet — No Spreadsheet" button creates `isManualProject: true` AppProject; SegmentList "Add Segment" button adds blank segments; full editor + annotation + export pipeline works unchanged
+- [ ] Tauri integration for standalone Windows .exe (not pursued — app is free to BLD)
+- [ ] ~~License key / activation system~~ (dropped 2026-04-21 — Azuria owns IP, app is free)
 - [ ] Final UI polish pass (animations, loading states, edge cases)
 
 ### Future (Post-Demo, If BLD Buys)
@@ -178,6 +178,7 @@ Excel Upload → Column Auto-Mapper → Date Range Filter (weekly batch)
 | 2026-04-14 | Dude | Satellite page preference (2nd page of "9/10"), stitch mode, remap columns, broader sheetNumber aliases, page number input in viewer |
 | 2026-04-14 | Dude | Deployed to GitHub + Vercel staging: https://bld-prep-staging.vercel.app |
 | 2026-04-16 | Dude | Dropped auto-orientation (plans aren't always red); auto-crop now places neutral circle. Added worker edit toolbar: Wider/Narrower/Taller/Shorter, Rotate ±15°/90°, Delete. AnnotationData gained `rotation`. |
+| 2026-04-21 | Byte | 2026 Mainline Prep form rewrite + session operator + full field editability + no-spreadsheet manual mode. Ships to https://bld-prep-2026.vercel.app (preview). |
 
 **UPDATE THIS TABLE** after every session that modifies the app.
 

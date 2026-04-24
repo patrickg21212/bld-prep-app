@@ -45,10 +45,10 @@ export const PREP_FIELD_LABELS: Record<PrepField, string> = {
   pipeSize: 'PIPE SIZE',
   pipeLength: 'PIPE LENGTH',
   streetName: 'STREET NAME',
-  usDepth: 'U.S. DEPTH',
-  dsDepth: 'D.S. DEPTH',
-  mhFrom: 'M/H # (FROM)',
-  mhTo: 'M/H # (TO)',
+  usDepth: 'USMH DEPTH',
+  dsDepth: 'DSMH DEPTH',
+  mhFrom: 'USMH',
+  mhTo: 'DSMH',
   readyToLine: 'READY TO LINE',
   comments1: 'COMMENTS (Pre-TV Notes)',
   comments2: 'COMMENTS (Other)',
@@ -75,29 +75,32 @@ export interface Segment {
   raw: Record<string, string>;
 }
 
-export type TrafficLevel = 'LIGHT' | 'MEDIUM' | 'HIGH' | '';
 export type WaterFlow = 'LIGHT' | 'MEDIUM' | 'HIGH' | '';
 export type MhLocation = 'STREET' | 'EASEMENT' | '';
 
+// Every Segment-derived field that can appear on the PDF gets an override key.
+// Worker can edit any spreadsheet-sourced value on the prep sheet without
+// touching the Excel file. Stored in observations.fieldOverrides.
 export type SegmentFieldKey =
   | 'dateStr'
   | 'repairNumber'
   | 'pipeSize'
   | 'pipeLength'
+  | 'pipeMaterial'
   | 'streetName'
   | 'usDepth'
   | 'dsDepth'
   | 'mhFrom'
-  | 'mhTo';
+  | 'mhTo'
+  | 'sheetNumber'
+  | 'comments';
 
 export interface SegmentObservations {
-  traffic: TrafficLevel;
   waterFlow: WaterFlow;
   overheadLines: boolean | null;
   infiltration: boolean | null;
   needsPointRepair: boolean | null;
   readyToLine: boolean | null;
-  hydrantLocation: string;
   incomingLinesSize: string;
   mhLocation: MhLocation;
   addressUSMH: string;
@@ -139,16 +142,17 @@ export interface AppProject {
   fallbackColumns?: Partial<Record<PrepField, number | null>>;
   columnHeaders: string[];
   savedAt: number;
+  // True when this project was created without a spreadsheet.
+  // Segments are added manually via the "Add Segment" button.
+  isManualProject?: boolean;
 }
 
 export const DEFAULT_OBSERVATIONS: SegmentObservations = {
-  traffic: '',
   waterFlow: '',
   overheadLines: null,
   infiltration: null,
   needsPointRepair: null,
   readyToLine: null,
-  hydrantLocation: '',
   incomingLinesSize: '',
   mhLocation: '',
   addressUSMH: '',
@@ -157,3 +161,28 @@ export const DEFAULT_OBSERVATIONS: SegmentObservations = {
   toiletAddresses: '',
   notes: '',
 };
+
+/**
+ * Create a blank Segment for manual (no-spreadsheet) projects. All fields
+ * empty — worker fills them in via SegmentEditor.
+ */
+export function createBlankSegment(repairNumber: string, rowIndex: number): Segment {
+  return {
+    rowIndex,
+    repairNumber,
+    date: null,
+    dateStr: '',
+    pipeSize: '',
+    pipeLength: '',
+    streetName: '',
+    usDepth: '',
+    dsDepth: '',
+    mhFrom: '',
+    mhTo: '',
+    readyToLine: false,
+    comments: '',
+    pipeMaterial: '',
+    sheetNumber: '',
+    raw: {},
+  };
+}

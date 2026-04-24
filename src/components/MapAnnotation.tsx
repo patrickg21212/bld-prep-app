@@ -262,7 +262,15 @@ export default function MapAnnotation({
   // Composite generation: runs after Konva has painted, bakes annotations
   // into the exported image so the PDF preview shows them.
   useEffect(() => {
-    if (!loadedImage || annotations.length === 0) return;
+    if (!loadedImage) return;
+    // When annotations are cleared (user deleted the last one), the previously
+    // saved composite still has the baked-in circle — exported PDFs would show
+    // a ghost mark. Overwrite the composite with the raw image so the stale
+    // pixels are flushed. Do NOT early-return without updating.
+    if (annotations.length === 0) {
+      onChangeRef.current(imageDataUrl, imageDataUrl, []);
+      return;
+    }
     const raf = requestAnimationFrame(() => {
       const composite = stageRef.current?.toDataURL({ pixelRatio: 2 });
       if (composite) {

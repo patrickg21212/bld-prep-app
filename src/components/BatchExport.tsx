@@ -13,6 +13,7 @@ interface Props {
   segments: SegmentWithObservations[];
   jobNumber: string;
   jobName: string;
+  operator: string;
 }
 
 type ExportState =
@@ -21,7 +22,7 @@ type ExportState =
   | { status: 'done'; mode: 'combined' | 'zip'; blobUrl: string; fileName: string }
   | { status: 'error'; message: string };
 
-export default function BatchExport({ segments, jobNumber, jobName }: Props) {
+export default function BatchExport({ segments, jobNumber, jobName, operator }: Props) {
   const [exportState, setExportState] = useState<ExportState>({ status: 'idle' });
   const blobUrlRef = useRef<string | null>(null);
 
@@ -38,13 +39,21 @@ export default function BatchExport({ segments, jobNumber, jobName }: Props) {
       observations,
       jobNumber,
       jobName,
+      operator,
       mapImageDataUrl,
     }));
-  }, [segments, jobNumber, jobName]);
+  }, [segments, jobNumber, jobName, operator]);
 
   const handleExport = useCallback(
     async (mode: 'combined' | 'zip') => {
       if (segments.length === 0) return;
+      if (!operator.trim()) {
+        setExportState({
+          status: 'error',
+          message: 'Enter your name in the OPERATOR field at the top of the page before exporting.',
+        });
+        return;
+      }
 
       cleanup();
       setExportState({ status: 'generating', current: 0, total: segments.length, mode });
@@ -68,7 +77,7 @@ export default function BatchExport({ segments, jobNumber, jobName }: Props) {
         setExportState({ status: 'error', message });
       }
     },
-    [segments, buildInputs, cleanup, jobNumber]
+    [segments, buildInputs, cleanup, jobNumber, operator]
   );
 
   const handleDownload = useCallback(() => {

@@ -20,6 +20,7 @@ interface Props {
   onSelectionChange: (sel: Set<string>) => void;
   onEditSettings: () => void;
   onBatchExport: () => void;
+  onAddBlankSegment: () => void;
 }
 
 export default function SegmentList({
@@ -35,7 +36,9 @@ export default function SegmentList({
   onSelectionChange,
   onEditSettings,
   onBatchExport,
+  onAddBlankSegment,
 }: Props) {
+  const isManual = project.isManualProject === true;
   const weekRanges = useMemo(() => getWeekRanges(project.segments), [project]);
   const [selectedWeek, setSelectedWeek] = useState<string>('');
   const [search, setSearch] = useState('');
@@ -107,15 +110,32 @@ export default function SegmentList({
             <span>{project.segments.length} total &middot; {completedCount} edited</span>
           </div>
         </div>
-        <button
-          onClick={onEditSettings}
-          style={{
-            background: 'var(--bg-card)', border: '1px solid var(--border)',
-            color: 'var(--text-secondary)', borderRadius: 6, padding: '6px 14px',
-            fontSize: 14, cursor: 'pointer',
-          }}>
-          Edit Settings
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={onAddBlankSegment}
+            style={{
+              background: 'var(--accent)', border: '1px solid var(--accent)',
+              color: 'white', borderRadius: 6, padding: '6px 14px',
+              fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}
+            title="Create a blank segment — all fields editable">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Add Segment
+          </button>
+          <button
+            onClick={onEditSettings}
+            style={{
+              background: 'var(--bg-card)', border: '1px solid var(--border)',
+              color: 'var(--text-secondary)', borderRadius: 6, padding: '6px 14px',
+              fontSize: 14, cursor: 'pointer',
+            }}>
+            Edit Settings
+          </button>
+        </div>
       </div>
 
       {/* Instructional banner */}
@@ -217,7 +237,9 @@ export default function SegmentList({
         {/* Rows */}
         {filteredSegments.length === 0 ? (
           <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)' }}>
-            No segments match your filters.
+            {isManual && project.segments.length === 0
+              ? 'No segments yet. Click "Add Segment" to create your first one.'
+              : 'No segments match your filters.'}
           </div>
         ) : (
           filteredSegments.map(({ seg, idx }) => {

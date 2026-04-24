@@ -8,8 +8,8 @@ interface Props {
   observations: SegmentObservations;
   jobNumber: string;
   jobName: string;
+  operator: string;
   mapImageDataUrl?: string;
-  time?: string;
   onBack: () => void;
 }
 
@@ -18,8 +18,8 @@ export default function PdfPreview({
   observations,
   jobNumber,
   jobName,
+  operator,
   mapImageDataUrl,
-  time,
   onBack,
 }: Props) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -33,8 +33,8 @@ export default function PdfPreview({
     observations,
     jobNumber,
     jobName,
+    operator,
     mapImageDataUrl,
-    time,
   };
 
   // Serialize input to detect changes (stable comparison)
@@ -43,13 +43,19 @@ export default function PdfPreview({
     observations,
     jobNumber,
     jobName,
+    operator,
     hasMap: !!mapImageDataUrl,
-    time,
   });
 
   const generatePdf = useCallback(async () => {
     setLoading(true);
     setError(null);
+
+    if (!operator.trim()) {
+      setError('Enter your name in the OPERATOR field at the top of the page before previewing a PDF.');
+      setLoading(false);
+      return;
+    }
 
     try {
       const doc = await generatePrepSheetPdf(pdfInput);

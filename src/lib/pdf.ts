@@ -1,15 +1,19 @@
 // PDF generation engine for BLD Services CIPP liner prep sheets
-// Uses jsPDF to programmatically draw the prep sheet matching the official BLD template
-// Rewritten to match the actual BLD+Prep.pdf template exactly:
-//   - Real logo image (embedded PNG)
-//   - Plain text toggles (LIGHT / MEDIUM / HIGH, YES / NO) with bold+underline for selected
-//   - No radio button circles
-//   - Pink highlight on "DID WE BLOW TOILETS:" label
-//   - Filled blue north arrow with "NORTH" text inside the shaft
+// Uses jsPDF to programmatically draw the prep sheet matching the 2026
+// BLD Mainline Prep template:
+//   - Top header: OPERATOR | READY TO LINE | DATE | JOB # | REPAIR # | JOB NAME
+//   - USMH / DSMH (not FROM/TO)
+//   - USMH DEPTH / DSMH DEPTH
+//   - M/H LOCATIONS: STREET / EASEMENT
+//   - PIPE MATERIAL field
+//   - BLOWN TOILETS (no pink highlight)
+//   - TRAFFIC and HYDRANT LOCATION removed
+//   - 5 fixed ruled COMMENTS lines at bottom
+//   - Sketch area ~60% of page, North arrow top-left
 
 import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
-import type { Segment, SegmentObservations } from './types';
+import type { Segment, SegmentObservations, SegmentFieldKey } from './types';
 import { BLD_LOGO_BASE64 } from './bld-logo-data';
 
 export interface PdfInput {
@@ -17,6 +21,7 @@ export interface PdfInput {
   observations: SegmentObservations;
   jobNumber: string;
   jobName: string;
+  operator: string;
   mapImageDataUrl?: string;
 }
 
@@ -30,17 +35,20 @@ const CONTENT_W = PAGE_W - MARGIN_L - MARGIN_R;
 // Colors
 const BLACK = '#000000';
 const DARK_GRAY = '#333333';
-const LINE_COLOR = '#000000';
 const UNDERLINE_COLOR = '#000000';
 
 // Font sizes
 const FONT_LABEL = 10;
 const FONT_VALUE = 10;
 const FONT_SMALL = 8;
-const FONT_SUBHEADER = 12;
 
 // Row spacing
 const ROW_GAP = 10;
+
+// Fixed ruled-line count for the COMMENTS section at the bottom of the page.
+const COMMENT_LINE_COUNT = 5;
+const COMMENT_LINE_MM = 6;
+const COMMENT_INDENT_MM = 26;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -223,7 +231,6 @@ function drawNorthArrow(doc: jsPDF, cx: number, cy: number, size: number): void 
 
   const arrowTop = cy - totalHeight / 2;
   const headBottom = arrowTop + headHeight;
-  const arrowBottom = headBottom + shaftHeight;
 
   // Draw the filled arrow head (triangle)
   doc.setFillColor(blue[0], blue[1], blue[2]);
@@ -275,22 +282,28 @@ function formatDate(segment: Segment): string {
 
 // ── Core rendering function (draws one page onto a jsPDF doc) ───────────────
 function renderPage(doc: jsPDF, input: PdfInput): void {
-  const { segment: rawSegment, observations, jobNumber, jobName, mapImageDataUrl } = input;
+  const { segment: rawSegment, observations, jobNumber, jobName, operator, mapImageDataUrl } = input;
 
   // Apply per-segment field overrides from observations so any manual edits
   // the worker made on the prep sheet show up on the exported PDF.
-  const ov = observations.fieldOverrides ?? {};
+  const ov = (observations.fieldOverrides ?? {}) as Partial<Record<SegmentFieldKey, string>>;
+  const pick = (key: SegmentFieldKey, fallback: string): string =>
+    ov[key] !== undefined ? (ov[key] as string) : fallback;
+
   const segment: Segment = {
     ...rawSegment,
-    dateStr: ov.dateStr ?? rawSegment.dateStr,
-    repairNumber: ov.repairNumber ?? rawSegment.repairNumber,
-    pipeSize: ov.pipeSize ?? rawSegment.pipeSize,
-    pipeLength: ov.pipeLength ?? rawSegment.pipeLength,
-    streetName: ov.streetName ?? rawSegment.streetName,
-    usDepth: ov.usDepth ?? rawSegment.usDepth,
-    dsDepth: ov.dsDepth ?? rawSegment.dsDepth,
-    mhFrom: ov.mhFrom ?? rawSegment.mhFrom,
-    mhTo: ov.mhTo ?? rawSegment.mhTo,
+    dateStr: pick('dateStr', rawSegment.dateStr),
+    repairNumber: pick('repairNumber', rawSegment.repairNumber),
+    pipeSize: pick('pipeSize', rawSegment.pipeSize),
+    pipeLength: pick('pipeLength', rawSegment.pipeLength),
+    pipeMaterial: pick('pipeMaterial', rawSegment.pipeMaterial),
+    streetName: pick('streetName', rawSegment.streetName),
+    usDepth: pick('usDepth', rawSegment.usDepth),
+    dsDepth: pick('dsDepth', rawSegment.dsDepth),
+    mhFrom: pick('mhFrom', rawSegment.mhFrom),
+    mhTo: pick('mhTo', rawSegment.mhTo),
+    sheetNumber: pick('sheetNumber', rawSegment.sheetNumber),
+    comments: pick('comments', rawSegment.comments),
   };
 
   let y = 10;
@@ -312,19 +325,26 @@ function renderPage(doc: jsPDF, input: PdfInput): void {
 
   y += logoH + 8;
 
-  // ── ROW 1: DATE, JOB#, REPAIR#, JOB NAME ────────────────────────────────
+  // ── ROW 1 (NEW): OPERATOR:___   READY TO LINE: YES / NO ─────────────────
   const r1Y = y;
   const leftX = MARGIN_L;
 
-  // Layout the header fields across the full width
-  drawField(doc, 'DATE:', formatDate(segment), leftX, r1Y, 34);
-  drawField(doc, 'JOB #', jobNumber, leftX + 36, r1Y, 32);
-  drawField(doc, 'REPAIR #', segment.repairNumber, leftX + 70, r1Y, 32);
-  drawField(doc, 'JOB NAME:', jobName, leftX + 104, r1Y, CONTENT_W - 104);
+  drawField(doc, 'OPERATOR:', operator, leftX, r1Y, CONTENT_W * 0.55);
+  drawYesNoText(doc, 'READY TO LINE', observations.readyToLine, leftX + CONTENT_W * 0.6, r1Y);
 
   y += ROW_GAP;
 
-  // Thin line under header row
+  // ── ROW 2: DATE | JOB # | JOB NAME | REPAIR # ──────────────────────────
+  // Reference-form order: DATE → JOB# → JOB NAME → REPAIR #.
+  const r2Y = y;
+  drawField(doc, 'DATE:', formatDate(segment), leftX, r2Y, 34);
+  drawField(doc, 'JOB #:', jobNumber, leftX + 36, r2Y, 40);
+  drawField(doc, 'JOB NAME:', jobName, leftX + 78, r2Y, 70);
+  drawField(doc, 'REPAIR #:', segment.repairNumber, leftX + 150, r2Y, CONTENT_W - 150);
+
+  y += ROW_GAP;
+
+  // Thin line under header rows
   doc.setDrawColor(UNDERLINE_COLOR);
   doc.setLineWidth(0.2);
   doc.line(MARGIN_L, y - 2, PAGE_W - MARGIN_R, y - 2);
@@ -336,85 +356,69 @@ function renderPage(doc: jsPDF, input: PdfInput): void {
   const rightCol = MARGIN_L + halfW + 4;
   const rightFieldW = halfW - 4;
 
-  // ── ROW 2: TRAFFIC: LIGHT / MEDIUM / HIGH  |  HYDRANT LOCATION:___ ─────
-  drawToggleText(doc, 'TRAFFIC: ', ['LIGHT', 'MEDIUM', 'HIGH'], observations.traffic, leftX, y);
-  drawField(doc, 'HYDRANT LOCATION:', observations.hydrantLocation, rightCol, y, rightFieldW);
+  // ── ROW 3: USMH: ___   DSMH: ___   |   STREET: ___ ──────────────────────
+  const mhBoxW = halfW / 2 - 2;
+  drawField(doc, 'USMH:', segment.mhFrom, leftX, y, mhBoxW);
+  drawField(doc, 'DSMH:', segment.mhTo, leftX + mhBoxW + 4, y, mhBoxW);
+  drawField(doc, 'STREET:', segment.streetName, rightCol, y, rightFieldW);
 
   y += ROW_GAP;
 
-  // ── ROW 3: OVERHEAD LINES OR TREES: YES / NO  |  INCOMING LINES SIZE:___
+  // ── ROW 4: PIPE SIZE | PIPE LENGTH | PIPE MATERIAL ──────────────────────
+  const thirdW = CONTENT_W / 3 - 2;
+  drawField(doc, 'PIPE SIZE:', segment.pipeSize, leftX, y, thirdW);
+  drawField(doc, 'PIPE LENGTH:', segment.pipeLength, leftX + thirdW + 3, y, thirdW);
+  drawField(doc, 'PIPE MATERIAL:', segment.pipeMaterial, leftX + 2 * (thirdW + 3), y, thirdW);
+
+  y += ROW_GAP;
+
+  // ── ROW 5: USMH DEPTH | DSMH DEPTH | M/H LOCATIONS: STREET / EASEMENT ──
+  const depthFieldW = halfW / 2 - 2;
+  drawField(doc, 'USMH DEPTH:', segment.usDepth, leftX, y, depthFieldW);
+  drawField(doc, 'DSMH DEPTH:', segment.dsDepth, leftX + depthFieldW + 4, y, depthFieldW);
+  drawToggleText(doc, 'M/H LOCATIONS: ', ['STREET', 'EASEMENT'], observations.mhLocation, rightCol, y);
+
+  y += ROW_GAP;
+
+  // ── ROW 6: ADDRESS OF USMH | ADDRESS OF DSMH ────────────────────────────
+  drawField(doc, 'ADDRESS OF USMH:', observations.addressUSMH, leftX, y, halfW);
+  drawField(doc, 'ADDRESS OF DSMH:', observations.addressDSMH, rightCol, y, rightFieldW);
+
+  y += ROW_GAP;
+
+  // ── ROW 7: OVERHEAD LINES OR TREES: YES / NO  |  INCOMING LINE SIZE ────
   drawYesNoText(doc, 'OVERHEAD LINES OR TREES', observations.overheadLines, leftX, y);
-  drawField(doc, 'INCOMING LINES SIZE:', observations.incomingLinesSize, rightCol, y, rightFieldW);
+  drawField(doc, 'INCOMING LINE SIZE:', observations.incomingLinesSize, rightCol, y, rightFieldW);
 
   y += ROW_GAP;
 
-  // ── ROW 4: WATER FLOW: LIGHT / MEDIUM / HIGH  |  U.S. DEPTH:___  D.S. DEPTH:___
+  // ── ROW 8: WATER FLOW | NEEDS POINT REPAIR | INFILTRATION ──────────────
   drawToggleText(doc, 'WATER FLOW: ', ['LIGHT', 'MEDIUM', 'HIGH'], observations.waterFlow, leftX, y);
-
-  const depthFieldW = rightFieldW / 2 - 2;
-  drawField(doc, 'U.S. DEPTH:', segment.usDepth, rightCol, y, depthFieldW);
-  drawField(doc, 'D.S. DEPTH:', segment.dsDepth, rightCol + depthFieldW + 4, y, depthFieldW);
+  drawYesNoText(doc, 'NEEDS POINT REPAIR', observations.needsPointRepair, leftX + 78, y);
+  drawYesNoText(doc, 'INFILTRATION', observations.infiltration, leftX + 145, y);
 
   y += ROW_GAP;
 
-  // ── ROW 5: PIPE SIZE:___  PIPE LENGTH:___  |  STREET NAME:___
-  const pipeFieldW = halfW / 2 - 2;
-  drawField(doc, 'PIPE SIZE:', segment.pipeSize, leftX, y, pipeFieldW);
-  drawField(doc, 'PIPE LENGTH:', segment.pipeLength, leftX + pipeFieldW + 4, y, pipeFieldW);
-  drawField(doc, 'STREET NAME:', segment.streetName, rightCol, y, rightFieldW);
-
-  y += ROW_GAP;
-
-  // ── ROW 6: M/H LOCATIONS: STREET / EASEMENT  |  ADDRESS OF U.S.M.H___
-  drawToggleText(doc, 'M/H LOCATIONS: ', ['STREET', 'EASEMENT'], observations.mhLocation, leftX, y);
-  drawField(doc, 'ADDRESS OF U.S.M.H', observations.addressUSMH, rightCol, y, rightFieldW);
-
-  y += ROW_GAP;
-
-  // ── ROW 7: ADDRESS OF D.S.M.H.___  |  M/H #'S:___ TO___
-  drawField(doc, 'ADDRESS OF D.S.M.H.', observations.addressDSMH, leftX, y, halfW);
-
-  const mhFieldW = rightFieldW / 2 - 6;
-  drawField(doc, "M/H #'S:", segment.mhFrom, rightCol, y, mhFieldW + 14);
-  drawField(doc, 'TO', segment.mhTo, rightCol + mhFieldW + 18, y, mhFieldW + 10);
-
-  y += ROW_GAP;
-
-  // ── ROW 8: READY TO LINE: YES / NO   NEEDS POINT REPAIR: YES / NO   INFILTRATION: YES / NO
-  const tripleSpacing = CONTENT_W / 3;
-  drawYesNoText(doc, 'READY TO LINE', observations.readyToLine, leftX, y);
-  drawYesNoText(doc, 'NEEDS POINT REPAIR', observations.needsPointRepair, leftX + tripleSpacing + 2, y);
-  drawYesNoText(doc, 'INFILTRATION', observations.infiltration, leftX + tripleSpacing * 2 + 4, y);
-
-  y += ROW_GAP;
-
-  // ── ROW 9: DID WE BLOW TOILETS: YES/NO (IF YES, LIST ADDRESSES!) ───────
+  // ── ROW 10: BLOWN TOILETS: YES/NO (IF YES, LIST ADDRESSES) ───────────────
+  // No pink highlight — plain label like the 2026 reference form.
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(FONT_LABEL);
-  const blowLabel = 'DID WE BLOW TOILETS:';
-  const blowLabelW = doc.getTextWidth(blowLabel);
-
-  // Pink/salmon background highlight behind the label text
-  doc.setFillColor(255, 200, 200);
-  doc.rect(leftX - 1, y - 4, blowLabelW + 3, 5.5, 'F');
-
-  // Label text on top of the highlight
+  const blowLabel = 'BLOWN TOILETS:';
   doc.setTextColor(BLACK);
   doc.text(blowLabel, leftX, y);
+  const blowLabelW = doc.getTextWidth(blowLabel);
 
-  // YES/NO toggle after the highlighted label
   const afterBlowX = leftX + blowLabelW + 3;
   const afterYesNo = drawYesNoText(doc, '', observations.blowToilets, afterBlowX, y);
 
-  // "(IF YES, LIST ADDRESSES!" text
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(FONT_SMALL);
   doc.setTextColor(BLACK);
-  doc.text('(IF YES, LIST ADDRESSES!', afterYesNo + 3, y);
+  doc.text('(IF YES, LIST ADDRESSES)', afterYesNo + 3, y);
 
   y += 5;
 
-  // If toilets were blown, show the addresses
+  // If toilets were blown, show the addresses inline.
   if (observations.blowToilets === true && observations.toiletAddresses) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(FONT_SMALL);
@@ -424,50 +428,21 @@ function renderPage(doc: jsPDF, input: PdfInput): void {
     y += lines.length * 3.5 + 2;
   }
 
-  y += 4;
+  y += 3;
 
   // ── THICK DIVIDER LINE ──────────────────────────────────────────────────
   drawDivider(doc, y);
-  y += 2;
+  y += 3;
 
-  // ── SCHEMATIC DRAWING SECTION ───────────────────────────────────────────
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(FONT_SUBHEADER);
-  doc.setTextColor(BLACK);
-  doc.text('SCHEMATIC DRAWING', PAGE_W / 2, y + 6, { align: 'center' });
-  y += 10;
-
-  // Comments: pre-compute wrapped lines so the comments section can grow
-  // when the text is longer than three lines. Schematic gets whatever's left.
-  const COMMENT_LINE_MM = 6;       // spacing between ruled lines
-  const COMMENT_BASE_LINES = 3;    // minimum ruled-line count (blank look)
-  const COMMENT_MAX_LINES = 8;     // cap so the schematic never collapses
-  const COMMENT_INDENT_MM = 26;    // x-offset after the "COMMENTS:" label
-
-  const _allComments: string[] = [];
-  if (segment.comments) _allComments.push(segment.comments);
-  if (observations.notes) _allComments.push(observations.notes);
-  const _commentText = _allComments.join(' | ');
-
-  // Use the same font settings as the actual render so wrap math lines up
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(FONT_VALUE);
-  const _wrapped = _commentText
-    ? (doc.splitTextToSize(_commentText, CONTENT_W - COMMENT_INDENT_MM) as string[])
-    : [];
-  const commentLineCount = Math.max(
-    COMMENT_BASE_LINES,
-    Math.min(_wrapped.length || COMMENT_BASE_LINES, COMMENT_MAX_LINES),
-  );
-  // Header ("COMMENTS:") takes the first line slot; extra slots are ruled
-  // lines below. Total height = (lines) * line-height + padding.
-  const commentsAreaH = commentLineCount * COMMENT_LINE_MM + 6;
-
+  // ── SCHEMATIC DRAWING SECTION (no subheader; larger area) ───────────────
+  // Comments area is fixed: 5 ruled lines + header = ~36mm tall. Schematic
+  // takes everything between the divider and the comments section.
+  const commentsAreaH = COMMENT_LINE_COUNT * COMMENT_LINE_MM + 6;
   const schematicTop = y;
   const schematicBottom = PAGE_H - MARGIN_R - commentsAreaH - 4;
   const schematicH = schematicBottom - schematicTop;
 
-  // Embed map image if provided
+  // Embed map image if provided — fills almost the whole schematic rect.
   if (mapImageDataUrl) {
     const imgPadding = 3;
     const imgX = MARGIN_L + imgPadding;
@@ -479,22 +454,21 @@ function renderPage(doc: jsPDF, input: PdfInput): void {
       const format = mapImageDataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
       doc.addImage(mapImageDataUrl, format, imgX, imgY, imgW, imgH, undefined, 'MEDIUM');
     } catch {
-      // If image fails, leave empty
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(FONT_SMALL);
-      doc.setTextColor(LINE_COLOR);
+      doc.setTextColor(DARK_GRAY);
       doc.text('(Map image could not be embedded)', PAGE_W / 2, schematicTop + schematicH / 2, {
         align: 'center',
       });
     }
   }
 
-  // North arrow in bottom-left of schematic area
+  // North arrow at top-left of sketch area.
   const northX = MARGIN_L + 14;
-  const northY = schematicTop + 30;
+  const northY = schematicTop + 18;
   drawNorthArrow(doc, northX, northY, 14);
 
-  // ── COMMENTS SECTION ────────────────────────────────────────────────────
+  // ── COMMENTS SECTION (FIXED 5 RULED LINES) ──────────────────────────────
   const commentsY = schematicBottom + 6;
 
   doc.setFont('helvetica', 'bold');
@@ -502,16 +476,24 @@ function renderPage(doc: jsPDF, input: PdfInput): void {
   doc.setTextColor(BLACK);
   doc.text('COMMENTS:', MARGIN_L, commentsY);
 
-  // Render each wrapped line on its own ruled row so text never overlaps
-  // the underlines. jsPDF's default line-height doesn't match our 6mm
-  // ruled spacing, which is what caused the jumbled-text look.
-  if (_wrapped.length > 0) {
+  // Gather and render any existing comment text inline with the ruled lines.
+  const allComments: string[] = [];
+  if (segment.comments) allComments.push(segment.comments);
+  if (observations.notes) allComments.push(observations.notes);
+  const commentText = allComments.join(' | ');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(FONT_VALUE);
+  const wrapped = commentText
+    ? (doc.splitTextToSize(commentText, CONTENT_W - COMMENT_INDENT_MM) as string[])
+    : [];
+
+  if (wrapped.length > 0) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(FONT_VALUE);
     doc.setTextColor(DARK_GRAY);
-    const visibleLines = _wrapped.slice(0, COMMENT_MAX_LINES);
-    // Add "…" to the last visible line if we truncated
-    if (_wrapped.length > COMMENT_MAX_LINES && visibleLines.length > 0) {
+    const visibleLines = wrapped.slice(0, COMMENT_LINE_COUNT);
+    if (wrapped.length > COMMENT_LINE_COUNT && visibleLines.length > 0) {
       const last = visibleLines[visibleLines.length - 1];
       visibleLines[visibleLines.length - 1] = last.replace(/\s*\S*$/, '') + ' …';
     }
@@ -520,11 +502,10 @@ function renderPage(doc: jsPDF, input: PdfInput): void {
     });
   }
 
-  // Ruled lines — one per row up to commentLineCount. First ruled line
-  // sits just below the "COMMENTS:" header (2mm below baseline).
+  // Fixed 5 ruled lines under the COMMENTS header.
   doc.setDrawColor(UNDERLINE_COLOR);
   doc.setLineWidth(0.3);
-  for (let i = 0; i < commentLineCount; i++) {
+  for (let i = 0; i < COMMENT_LINE_COUNT; i++) {
     const lineY = commentsY + 2 + i * COMMENT_LINE_MM;
     doc.line(MARGIN_L, lineY, PAGE_W - MARGIN_R, lineY);
   }

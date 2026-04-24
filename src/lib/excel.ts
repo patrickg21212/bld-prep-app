@@ -57,18 +57,36 @@ export function parseExcelFile(buffer: ArrayBuffer, sheetName?: string): ParsedE
 
   if (rawData.length === 0) throw new Error('Spreadsheet appears to be empty.');
 
-  // Detect header row: the spec says Row 3 (index 2) is the actual column header row
-  // But we auto-detect by finding the row with the most non-empty cells
-  let headerRowIndex = 2; // default to row 3 (0-indexed = 2)
-  let maxNonEmpty = 0;
+  // Detect header row: the spec says Row 3 (index 2) is the actual column header row.
+  // Default to row 3 always. Only fall back to auto-detect if row 3 has fewer than 5
+  // non-empty cells (e.g. a division's sheet where headers live on row 1 or row 2).
+  // If even the fallback produces a row with < 3 non-empty cells, throw — silently
+  // parsing garbage headers leads to blank segments and blank PDFs with no warning.
+  const countNonEmpty = (row: (string | number | boolean | Date | null)[] | undefined) =>
+    (row ?? []).filter(c => c !== '' && c !== null && c !== undefined).length;
 
-  for (let i = 0; i < Math.min(10, rawData.length); i++) {
-    const row = rawData[i];
-    const nonEmpty = row.filter(c => c !== '' && c !== null && c !== undefined).length;
-    if (nonEmpty > maxNonEmpty) {
-      maxNonEmpty = nonEmpty;
-      headerRowIndex = i;
+  let headerRowIndex = 2; // row 3 (0-indexed) per spec
+  const row3NonEmpty = countNonEmpty(rawData[2]);
+
+  if (row3NonEmpty < 5) {
+    // Fall back to picking the row with the most non-empty cells in the first 10 rows
+    let bestIndex = 0;
+    let bestNonEmpty = countNonEmpty(rawData[0]);
+    for (let i = 1; i < Math.min(10, rawData.length); i++) {
+      const n = countNonEmpty(rawData[i]);
+      if (n > bestNonEmpty) {
+        bestNonEmpty = n;
+        bestIndex = i;
+      }
     }
+    if (bestNonEmpty < 3) {
+      throw new Error(
+        `Could not locate a header row: row 3 has ${row3NonEmpty} non-empty cells and the ` +
+        `best alternative in the first 10 rows has only ${bestNonEmpty}. Check the spreadsheet ` +
+        `structure — the header row should have at least 3 column labels.`
+      );
+    }
+    headerRowIndex = bestIndex;
   }
 
   const headerRow = rawData[headerRowIndex] || [];

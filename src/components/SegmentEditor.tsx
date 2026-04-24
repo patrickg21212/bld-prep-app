@@ -1,8 +1,9 @@
 import React, { useCallback, useState, lazy, Suspense } from 'react';
-import type { Segment, SegmentObservations, SegmentFieldKey, TrafficLevel, WaterFlow, MhLocation, AnnotationData } from '../lib/types';
+import type { Segment, SegmentObservations, SegmentFieldKey, WaterFlow, MhLocation, AnnotationData } from '../lib/types';
 import MapAnnotation from './MapAnnotation';
 
 const PlanViewer = lazy(() => import('./PlanViewer'));
+const MapViewer = lazy(() => import('./MapViewer'));
 
 interface Props {
   segment: Segment;
@@ -44,6 +45,7 @@ export default function SegmentEditor({
   onNavigate,
 }: Props) {
   const [showPlanViewer, setShowPlanViewer] = useState(false);
+  const [showMapViewer, setShowMapViewer] = useState(false);
 
   const set = useCallback(<K extends keyof SegmentObservations>(key: K, val: SegmentObservations[K]) => {
     onObservationChange({ ...observations, [key]: val });
@@ -94,6 +96,13 @@ export default function SegmentEditor({
     // other — that yields a correctly-aligned ellipse in one gesture.
     onMapChange(null, croppedDataUrl, []);
     setShowPlanViewer(false);
+  }, [onMapChange]);
+
+  const handleMapCrop = useCallback((croppedDataUrl: string) => {
+    // Same downstream path as plan crops — raw image, no annotations, the
+    // worker draws the pipe ellipse on top.
+    onMapChange(null, croppedDataUrl, []);
+    setShowMapViewer(false);
   }, [onMapChange]);
 
   if (!segment) return null;
@@ -159,22 +168,22 @@ export default function SegmentEditor({
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        {/* Left column: Auto-populated fields */}
+        {/* Left column: Segment Fields — all editable (spreadsheet or blank) */}
         <div>
-          <SectionHeader>Auto-Populated from Excel</SectionHeader>
+          <SectionHeader>Segment Fields</SectionHeader>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <EditableField label="DATE" value={fieldValue('dateStr', segment.dateStr)} sheetValue={segment.dateStr} onChange={(v) => setFieldOverride('dateStr', v, segment.dateStr)} />
             <EditableField label="REPAIR #" value={fieldValue('repairNumber', segment.repairNumber)} sheetValue={segment.repairNumber} onChange={(v) => setFieldOverride('repairNumber', v, segment.repairNumber)} />
             <EditableField label="PIPE SIZE" value={fieldValue('pipeSize', segment.pipeSize)} sheetValue={segment.pipeSize} onChange={(v) => setFieldOverride('pipeSize', v, segment.pipeSize)} />
             <EditableField label="PIPE LENGTH" value={fieldValue('pipeLength', segment.pipeLength)} sheetValue={segment.pipeLength} onChange={(v) => setFieldOverride('pipeLength', v, segment.pipeLength)} />
+            <EditableField label="PIPE MATERIAL" value={fieldValue('pipeMaterial', segment.pipeMaterial)} sheetValue={segment.pipeMaterial} onChange={(v) => setFieldOverride('pipeMaterial', v, segment.pipeMaterial)} />
             <EditableField label="STREET NAME" value={fieldValue('streetName', segment.streetName)} sheetValue={segment.streetName} onChange={(v) => setFieldOverride('streetName', v, segment.streetName)} />
-            <EditableField label="U.S. DEPTH" value={fieldValue('usDepth', segment.usDepth)} sheetValue={segment.usDepth} onChange={(v) => setFieldOverride('usDepth', v, segment.usDepth)} />
-            <EditableField label="D.S. DEPTH" value={fieldValue('dsDepth', segment.dsDepth)} sheetValue={segment.dsDepth} onChange={(v) => setFieldOverride('dsDepth', v, segment.dsDepth)} />
-            <EditableField label="M/H # FROM" value={fieldValue('mhFrom', segment.mhFrom)} sheetValue={segment.mhFrom} onChange={(v) => setFieldOverride('mhFrom', v, segment.mhFrom)} />
-            <EditableField label="M/H # TO" value={fieldValue('mhTo', segment.mhTo)} sheetValue={segment.mhTo} onChange={(v) => setFieldOverride('mhTo', v, segment.mhTo)} />
-            {segment.comments && (
-              <ReadOnlyField label="COMMENTS (EXCEL)" value={segment.comments} multiline />
-            )}
+            <EditableField label="USMH DEPTH" value={fieldValue('usDepth', segment.usDepth)} sheetValue={segment.usDepth} onChange={(v) => setFieldOverride('usDepth', v, segment.usDepth)} />
+            <EditableField label="DSMH DEPTH" value={fieldValue('dsDepth', segment.dsDepth)} sheetValue={segment.dsDepth} onChange={(v) => setFieldOverride('dsDepth', v, segment.dsDepth)} />
+            <EditableField label="USMH" value={fieldValue('mhFrom', segment.mhFrom)} sheetValue={segment.mhFrom} onChange={(v) => setFieldOverride('mhFrom', v, segment.mhFrom)} />
+            <EditableField label="DSMH" value={fieldValue('mhTo', segment.mhTo)} sheetValue={segment.mhTo} onChange={(v) => setFieldOverride('mhTo', v, segment.mhTo)} />
+            <EditableField label="SHEET #" value={fieldValue('sheetNumber', segment.sheetNumber)} sheetValue={segment.sheetNumber} onChange={(v) => setFieldOverride('sheetNumber', v, segment.sheetNumber)} />
+            <EditableField label="COMMENTS (EXCEL)" value={fieldValue('comments', segment.comments)} sheetValue={segment.comments} onChange={(v) => setFieldOverride('comments', v, segment.comments)} multiline />
           </div>
 
           <div className="mt-4">
@@ -190,15 +199,6 @@ export default function SegmentEditor({
         <div>
           <SectionHeader>Field Observations</SectionHeader>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-            <div>
-              <FieldLabel>TRAFFIC</FieldLabel>
-              <ThreeToggle
-                options={['LIGHT', 'MEDIUM', 'HIGH'] as TrafficLevel[]}
-                value={observations.traffic}
-                onChange={(v) => set('traffic', v as TrafficLevel)}
-              />
-            </div>
 
             <div>
               <FieldLabel>WATER FLOW</FieldLabel>
@@ -251,35 +251,28 @@ export default function SegmentEditor({
             </div>
 
             <TextInput
-              label="HYDRANT LOCATION"
-              value={observations.hydrantLocation}
-              placeholder="e.g. NW corner of intersection"
-              onChange={(v) => set('hydrantLocation', v)}
-            />
-
-            <TextInput
-              label="INCOMING LINES SIZE"
+              label="INCOMING LINE SIZE"
               value={observations.incomingLinesSize}
               placeholder='e.g. 6", 8"'
               onChange={(v) => set('incomingLinesSize', v)}
             />
 
             <TextInput
-              label="ADDRESS OF U.S.M.H"
+              label="ADDRESS OF USMH"
               value={observations.addressUSMH}
               placeholder="Street address"
               onChange={(v) => set('addressUSMH', v)}
             />
 
             <TextInput
-              label="ADDRESS OF D.S.M.H"
+              label="ADDRESS OF DSMH"
               value={observations.addressDSMH}
               placeholder="Street address"
               onChange={(v) => set('addressDSMH', v)}
             />
 
             <div>
-              <FieldLabel>DID WE BLOW TOILETS</FieldLabel>
+              <FieldLabel>BLOWN TOILETS</FieldLabel>
               <YesNoToggle
                 value={observations.blowToilets}
                 onChange={(v) => set('blowToilets', v)}
@@ -333,15 +326,41 @@ export default function SegmentEditor({
 
       {/* Map Annotation Section — full width below the two columns */}
       <div className="mt-6">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
           <SectionHeader>Schematic Drawing / Map</SectionHeader>
-          {plansData && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {plansData && (
+              <button
+                onClick={() => setShowPlanViewer(true)}
+                style={{
+                  background: segment.sheetNumber ? 'var(--accent-subtle)' : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${segment.sheetNumber ? 'var(--accent)' : 'rgba(255,255,255,0.2)'}`,
+                  color: segment.sheetNumber ? 'var(--accent)' : 'var(--text-muted)',
+                  borderRadius: 6,
+                  padding: '6px 14px',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+                title={segment.sheetNumber ? `Opens to page ${getSheetPages()[0]} (Sheet ${segment.sheetNumber})` : 'No sheet number mapped — will open to page 1. Type the page number manually in the viewer.'}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                Crop from Plans
+                {segment.sheetNumber
+                  ? <span style={{ opacity: 0.7, fontSize: 13 }}>(Sheet {segment.sheetNumber} → pg {getSheetPages()[0]})</span>
+                  : <span style={{ opacity: 0.6, fontSize: 12 }}>(no sheet # — type page manually)</span>
+                }
+              </button>
+            )}
             <button
-              onClick={() => setShowPlanViewer(true)}
+              onClick={() => setShowMapViewer(true)}
               style={{
-                background: segment.sheetNumber ? 'var(--accent-subtle)' : 'rgba(255,255,255,0.05)',
-                border: `1px solid ${segment.sheetNumber ? 'var(--accent)' : 'rgba(255,255,255,0.2)'}`,
-                color: segment.sheetNumber ? 'var(--accent)' : 'var(--text-muted)',
+                background: 'var(--accent-subtle)',
+                border: '1px solid var(--accent)',
+                color: 'var(--accent)',
                 borderRadius: 6,
                 padding: '6px 14px',
                 fontSize: 14,
@@ -351,16 +370,12 @@ export default function SegmentEditor({
                 alignItems: 'center',
                 gap: 6,
               }}
-              title={segment.sheetNumber ? `Opens to page ${getSheetPages()[0]} (Sheet ${segment.sheetNumber})` : 'No sheet number mapped — will open to page 1. Type the page number manually in the viewer.'}
+              title="No plans needed — punch in an address, frame the area on satellite imagery, and capture it as the map."
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-              Crop from Plans
-              {segment.sheetNumber
-                ? <span style={{ opacity: 0.7, fontSize: 13 }}>(Sheet {segment.sheetNumber} → pg {getSheetPages()[0]})</span>
-                : <span style={{ opacity: 0.6, fontSize: 12 }}>(no sheet # — type page manually)</span>
-              }
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+              Use Map
             </button>
-          )}
+          </div>
         </div>
         <MapAnnotation
           initialImage={mapRawImageDataUrl ?? undefined}
@@ -394,6 +409,26 @@ export default function SegmentEditor({
               />
             );
           })()}
+        </Suspense>
+      )}
+
+      {/* MapViewer modal — address search + aerial crop, no API keys */}
+      {showMapViewer && (
+        <Suspense fallback={
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 100,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'white', fontSize: 16,
+          }}>
+            Loading map viewer...
+          </div>
+        }>
+          <MapViewer
+            initialAddress={observations.addressUSMH || segment.streetName || ''}
+            onCrop={handleMapCrop}
+            onClose={() => setShowMapViewer(false)}
+          />
         </Suspense>
       )}
     </div>
@@ -448,35 +483,52 @@ function ReadOnlyField({ label, value, multiline }: { label: string; value: stri
 }
 
 function EditableField({
-  label, value, sheetValue, onChange,
-}: { label: string; value: string; sheetValue: string; onChange: (v: string) => void }) {
+  label, value, sheetValue, onChange, multiline,
+}: { label: string; value: string; sheetValue: string; onChange: (v: string) => void; multiline?: boolean }) {
   const isOverridden = value !== sheetValue;
   return (
     <div style={{
       background: 'var(--bg-card)',
       border: `1px solid ${isOverridden ? 'var(--accent)' : 'var(--border)'}`,
       borderRadius: 6, padding: '8px 12px',
-      display: 'flex', alignItems: 'center', gap: 10,
+      display: 'flex', alignItems: multiline ? 'flex-start' : 'center', gap: 10,
     }}>
       <span style={{
         color: 'var(--text-muted)', fontSize: 14, fontWeight: 600,
         textTransform: 'uppercase', letterSpacing: '0.04em',
         minWidth: 100, flexShrink: 0,
+        paddingTop: multiline ? 4 : 0,
       }}>
         {label}
       </span>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={sheetValue ? undefined : '—'}
-        style={{
-          flex: 1, minWidth: 0, background: 'transparent', border: 'none',
-          color: value ? 'var(--text-primary)' : 'var(--text-muted)',
-          fontSize: 14, padding: 0, outline: 'none',
-          fontWeight: isOverridden ? 600 : 400,
-        }}
-      />
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={sheetValue ? undefined : '—'}
+          rows={2}
+          style={{
+            flex: 1, minWidth: 0, background: 'transparent', border: 'none',
+            color: value ? 'var(--text-primary)' : 'var(--text-muted)',
+            fontSize: 14, padding: 0, outline: 'none', resize: 'vertical',
+            fontWeight: isOverridden ? 600 : 400,
+            fontFamily: 'inherit',
+          }}
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={sheetValue ? undefined : '—'}
+          style={{
+            flex: 1, minWidth: 0, background: 'transparent', border: 'none',
+            color: value ? 'var(--text-primary)' : 'var(--text-muted)',
+            fontSize: 14, padding: 0, outline: 'none',
+            fontWeight: isOverridden ? 600 : 400,
+          }}
+        />
+      )}
       {isOverridden && (
         <span
           title={`Sheet value: ${sheetValue || '(empty)'} — click to revert`}

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { PrepField, Segment, SegmentObservations, AppProject, AnnotationData } from '../lib/types';
-import { DEFAULT_OBSERVATIONS } from '../lib/types';
+import { DEFAULT_OBSERVATIONS, createBlankSegment } from '../lib/types';
 import { parseExcelFile, rowsToSegments, getWeekRanges, listSheets } from '../lib/excel';
 import type { SheetInfo } from '../lib/excel';
 import { autoMapColumns, fingerprintHeaders, checkMappingHealth, type MappingWarning } from '../lib/fuzzy';
@@ -77,6 +77,20 @@ export default function App() {
   const [plansFileName, setPlansFileName] = useState<string | null>(null);
   const [plansNumPages, setPlansNumPages] = useState(0);
   const [mappingWarnings, setMappingWarnings] = useState<MappingWarning[]>([]);
+
+  // Session-level operator — required before any PDF export. Persisted in
+  // sessionStorage so it survives a refresh but clears when the tab closes.
+  const [operator, setOperatorState] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return sessionStorage.getItem('bld-operator') ?? '';
+  });
+  const setOperator = useCallback((val: string) => {
+    setOperatorState(val);
+    if (typeof window !== 'undefined') {
+      if (val) sessionStorage.setItem('bld-operator', val);
+      else sessionStorage.removeItem('bld-operator');
+    }
+  }, []);
 
   // Force-remap flag: bypasses saved mapping fingerprint so column mapper runs again
   const forceRemapRef = useRef(false);
@@ -257,25 +271,84 @@ export default function App() {
   const handlePlansUpload = useCallback(async (file: File) => {
     try {
       const buffer = await file.arrayBuffer();
-      // Make a copy — pdf.js detaches the original ArrayBuffer
-      const bufferCopy = buffer.slice(0);
-      // Load pdf.js via script tag if not already loaded
+      // pdf.js v3 can transfer/detach the underlying ArrayBuffer of the Uint8Array
+      // it receives. Hand it a dedicated slice so nothing else shares that buffer.
+      // React state and IndexedDB each get their own independent slices too, so a
+      // detachment in one path can never zero out the buffer the others hold.
+      const pdfjsBuffer = buffer.slice(0);
+      const stateBuffer = buffer.slice(0);
+      const storageBuffer = buffer.slice(0);
+
       const lib = await loadPdfjs();
-      const doc = await lib.getDocument({ data: new Uint8Array(bufferCopy) }).promise;
+      const doc = await lib.getDocument({ data: new Uint8Array(pdfjsBuffer) }).promise;
       const numPages = doc.numPages;
 
-      setPlansData(buffer);
+      setPlansData(stateBuffer);
       setPlansFileName(file.name);
       setPlansNumPages(numPages);
 
       const proj = projectRef.current;
       if (proj) {
-        await savePlans(proj.id, buffer, file.name, numPages);
+        await savePlans(proj.id, storageBuffer, file.name, numPages);
       }
     } catch (err) {
       console.error('[BLD] Plans upload error:', err);
       alert('Error loading plans PDF: ' + (err instanceof Error ? err.message : String(err)));
     }
+  }, []);
+
+  const handleCreateManualProject = useCallback(() => {
+    const projectId = (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const proj: AppProject = {
+      id: projectId,
+      name: 'Manual Prep Sheet',
+      fileName: '',
+      segments: [],
+      columnMapping: {} as Record<PrepField, number | null>,
+      fallbackColumns: {},
+      columnHeaders: [],
+      savedAt: Date.now(),
+      isManualProject: true,
+    };
+    setProject(proj);
+    setMappingWarnings([]);
+    setPendingFile(null);
+    setPendingMapping(null);
+    setObservations({});
+    setMapData({});
+    setJobNumber('');
+    setJobName('');
+    setDateFilter({ start: null, end: null });
+    setSelectedSegments(new Set());
+    setScreen('settings');
+  }, []);
+
+  const handleAddBlankSegment = useCallback(() => {
+    const proj = projectRef.current;
+    if (!proj) return;
+    // Assign a unique repair number placeholder based on existing count.
+    // Worker can change it in the editor — fieldOverride system handles that.
+    let n = proj.segments.length + 1;
+    const existing = new Set(proj.segments.map(s => s.repairNumber));
+    let candidate = `NEW-${n}`;
+    while (existing.has(candidate)) {
+      n += 1;
+      candidate = `NEW-${n}`;
+    }
+    const newSeg = createBlankSegment(candidate, proj.segments.length);
+    const updated: AppProject = {
+      ...proj,
+      segments: [...proj.segments, newSeg],
+      savedAt: Date.now(),
+    };
+    setProject(updated);
+    // Open the editor for the new segment immediately.
+    setSelectedSegmentIndex(updated.segments.length - 1);
+    setObservations(prev => ({
+      ...prev,
+      [newSeg.repairNumber]: { ...DEFAULT_OBSERVATIONS },
+    }));
+    setScreen('editor');
   }, []);
 
   const handleSettingsComplete = useCallback(async (jn: string, jnm: string) => {
@@ -372,7 +445,9 @@ export default function App() {
     // Load saved plans
     const plans = await getPlans(proj.id);
     if (plans) {
-      setPlansData(plans.pdfData);
+      // Slice the buffer coming out of IndexedDB so the copy in React state is
+      // independent of any downstream pdf.js consumer that might detach it.
+      setPlansData(plans.pdfData.slice(0));
       setPlansFileName(plans.fileName);
       setPlansNumPages(plans.numPages);
     } else {
@@ -427,7 +502,34 @@ export default function App() {
           </div>
         )}
 
-        <div className="ml-auto flex gap-2">
+        {/* Session-level OPERATOR input — required for PDF export */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{
+            color: 'var(--nav-text-muted)',
+            fontSize: 13, fontWeight: 600,
+            textTransform: 'uppercase', letterSpacing: '0.06em',
+          }}>
+            Operator
+          </label>
+          <input
+            type="text"
+            value={operator}
+            onChange={(e) => setOperator(e.target.value)}
+            placeholder="Your name"
+            style={{
+              background: operator ? 'rgba(255,255,255,0.12)' : 'rgba(255,180,70,0.18)',
+              border: `1px solid ${operator ? 'rgba(255,255,255,0.2)' : 'rgba(255,180,70,0.5)'}`,
+              color: 'var(--nav-text)',
+              borderRadius: 6,
+              padding: '5px 10px',
+              fontSize: 14,
+              width: 160,
+              outline: 'none',
+            }}
+          />
+        </div>
+
+        <div className="flex gap-2">
           {screen !== 'home' && (
             <button
               onClick={() => setScreen('home')}
@@ -471,6 +573,7 @@ export default function App() {
             recentProjects={recentProjects}
             onFileUpload={handleFileUpload}
             onLoadProject={handleRecentProjectLoad}
+            onCreateManualProject={handleCreateManualProject}
           />
         )}
         {screen === 'sheetpicker' && pendingFile && (
@@ -515,6 +618,7 @@ export default function App() {
             onSelectionChange={setSelectedSegments}
             onEditSettings={() => setScreen('settings')}
             onBatchExport={() => setScreen('batch')}
+            onAddBlankSegment={handleAddBlankSegment}
           />
         )}
         {screen === 'editor' && project && currentSegment && (
@@ -549,6 +653,7 @@ export default function App() {
             observations={currentObs}
             jobNumber={jobNumber}
             jobName={jobName}
+            operator={operator}
             mapImageDataUrl={currentMap.imageDataUrl ?? undefined}
             onBack={() => setScreen('editor')}
           />
@@ -578,6 +683,7 @@ export default function App() {
               }
               jobNumber={jobNumber}
               jobName={jobName}
+              operator={operator}
             />
           </div>
         )}

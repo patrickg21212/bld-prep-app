@@ -5,9 +5,10 @@ interface Props {
   recentProjects: AppProject[];
   onFileUpload: (file: File) => void;
   onLoadProject: (project: AppProject) => void;
+  onCreateManualProject: () => void;
 }
 
-export default function HomeScreen({ recentProjects, onFileUpload, onLoadProject }: Props) {
+export default function HomeScreen({ recentProjects, onFileUpload, onLoadProject, onCreateManualProject }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -103,6 +104,41 @@ export default function HomeScreen({ recentProjects, onFileUpload, onLoadProject
                 </>
               )}
             </div>
+
+            {/* Secondary action — start without a spreadsheet */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              marginTop: 16,
+            }}>
+              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              <span style={{ color: 'var(--text-muted)', fontSize: 13, fontWeight: 600, letterSpacing: '0.04em' }}>OR</span>
+              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            </div>
+            <button
+              onClick={onCreateManualProject}
+              style={{
+                width: '100%',
+                marginTop: 16,
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-primary)',
+                borderRadius: 8,
+                padding: '14px 18px',
+                fontSize: 14, fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                transition: 'border-color 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+              title="Start a blank project — add segments manually, no Excel required"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              New Prep Sheet &mdash; No Spreadsheet
+            </button>
 
             {error && (
               <div style={{

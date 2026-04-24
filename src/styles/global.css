@@ -144,3 +144,10 @@ input, select, textarea, button {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* MapViewer — OSM house-number overlay. mix-blend-mode: multiply lets only
+   the dark ink (labels, house numbers, building outlines) bleed through the
+   satellite basemap without washing out the imagery. */
+.osm-labels-overlay {
+  mix-blend-mode: multiply;
+}
