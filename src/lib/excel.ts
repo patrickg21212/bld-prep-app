@@ -142,8 +142,19 @@ export function rowsToSegments(
       return '';
     };
 
-    const repairNumber = get('repairNumber');
-    if (!repairNumber) continue; // skip rows without a repair number
+    // When a row has no repair number, fall back to "USMH - DSMH" as the ID
+    // (e.g. "12 - 13"). Only skip if neither a repair number NOR a manhole
+    // pair is available — then the row has no usable identifier.
+    let repairNumber = get('repairNumber');
+    const mhFromVal = get('mhFrom');
+    const mhToVal = get('mhTo');
+    if (!repairNumber) {
+      if (mhFromVal && mhToVal) {
+        repairNumber = `${mhFromVal} - ${mhToVal}`;
+      } else {
+        continue;
+      }
+    }
 
     // Parse date — handles MM/DD/YY, MM/DD/YYYY, and typos like MM/DD/226
     const dateStr = get('date');
@@ -175,8 +186,8 @@ export function rowsToSegments(
       streetName: get('streetName'),
       usDepth: get('usDepth'),
       dsDepth: get('dsDepth'),
-      mhFrom: get('mhFrom'),
-      mhTo: get('mhTo'),
+      mhFrom: mhFromVal,
+      mhTo: mhToVal,
       readyToLine,
       comments,
       pipeMaterial: get('pipeMaterial'),
