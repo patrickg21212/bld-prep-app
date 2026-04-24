@@ -61,6 +61,34 @@ interface PendingMapping {
 }
 
 export default function App() {
+  // MANDATORY: every page load = clean slate. BLD techs use spreadsheets
+  // with different column formats within minutes of each other; any saved
+  // mapping/draft from a prior sheet will corrupt the next one. Refresh
+  // must wipe all persisted data. This blocks render until the wipe finishes.
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        await Promise.all([
+          db.columnMappings.clear(),
+          db.segmentDrafts.clear(),
+          db.projectDefaults.clear(),
+          db.projects.clear(),
+          db.projectPlans.clear(),
+        ]);
+      } catch (err) {
+        console.warn('[BLD] IndexedDB wipe error (proceeding anyway):', err);
+      }
+      try {
+        sessionStorage.clear();
+        localStorage.clear();
+      } catch {
+        // storage access errors in private-browsing modes — ignore
+      }
+      setReady(true);
+    })();
+  }, []);
+
   const [screen, setScreen] = useState<Screen>('home');
   const [project, setProject] = useState<AppProject | null>(null);
   const [selectedSegmentIndex, setSelectedSegmentIndex] = useState(0);
@@ -78,18 +106,11 @@ export default function App() {
   const [plansNumPages, setPlansNumPages] = useState(0);
   const [mappingWarnings, setMappingWarnings] = useState<MappingWarning[]>([]);
 
-  // Session-level operator — required before any PDF export. Persisted in
-  // sessionStorage so it survives a refresh but clears when the tab closes.
-  const [operator, setOperatorState] = useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    return sessionStorage.getItem('bld-operator') ?? '';
-  });
+  // Operator starts empty every refresh (no persistence — refresh = clean slate).
+  const [operator, setOperatorState] = useState<string>('');
   const setOperator = useCallback((val: string) => {
+    // In-memory only — refresh clears everything including operator name.
     setOperatorState(val);
-    if (typeof window !== 'undefined') {
-      if (val) sessionStorage.setItem('bld-operator', val);
-      else sessionStorage.removeItem('bld-operator');
-    }
   }, []);
 
   // Force-remap flag: bypasses saved mapping fingerprint so column mapper runs again
@@ -108,9 +129,8 @@ export default function App() {
   pendingMappingRef.current = pendingMapping;
   const rawRowsRef = useRef<string[][]>([]);
 
-  useEffect(() => {
-    getRecentProjects().then(setRecentProjects);
-  }, []);
+  // Recent projects list disabled — refresh always clears everything,
+  // there is nothing to show.
 
   // Process a specific sheet from a buffer
   const processSheet = useCallback(async (buffer: ArrayBuffer, fileName: string, sheetName: string) => {
@@ -492,6 +512,14 @@ export default function App() {
   const currentSegmentId = currentSegment?.repairNumber ?? '';
   const currentObs = observations[currentSegmentId] ?? { ...DEFAULT_OBSERVATIONS };
   const currentMap = mapData[currentSegmentId] ?? { imageDataUrl: null, rawImageDataUrl: null, annotations: [] };
+
+  // Block render until the mount-time IndexedDB wipe finishes — otherwise
+  // components could query stale data in the ~50ms window before it's cleared.
+  if (!ready) {
+    return (
+      <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }} />
+    );
+  }
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
