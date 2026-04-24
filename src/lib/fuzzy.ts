@@ -50,7 +50,8 @@ const FIELD_ALIASES: Record<PrepField, string[]> = {
   ],
   comments1: [
     'pre-tv notes', 'pre tv notes', 'pretv notes', 'pre-cctv notes',
-    'pre cctv notes', 'tv notes', 'field notes', 'notes',
+    'pre cctv notes', 'pre cctv comments', 'pre-cctv comments',
+    'pretv comments', 'pre tv comments', 'tv notes', 'field notes', 'notes',
   ],
   comments2: [
     'comments', 'comment', 'remarks', 'additional comments', 'notes',

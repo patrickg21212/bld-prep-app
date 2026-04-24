@@ -68,19 +68,45 @@ export function parseExcelFile(buffer: ArrayBuffer, sheetName?: string): ParsedE
 
   if (rawData.length === 0) throw new Error('Spreadsheet appears to be empty.');
 
-  // Detect header row: the spec says Row 3 (index 2) is the actual column header row.
-  // Default to row 3 always. Only fall back to auto-detect if row 3 has fewer than 5
-  // non-empty cells (e.g. a division's sheet where headers live on row 1 or row 2).
-  // If even the fallback produces a row with < 3 non-empty cells, throw — silently
-  // parsing garbage headers leads to blank segments and blank PDFs with no warning.
+  // Detect header row. Different BLD divisions use different layouts:
+  //   - Original BLD format: rows 1-2 are grouping labels, row 3 is the real header row
+  //   - PSR / Mainline Tracker format: row 1 is the header row directly
+  // Pick the FIRST row in the first 10 that looks like headers (mostly text,
+  // short values, 5+ cells). Using "most non-empty cells" alone picks data
+  // rows in sheets where rows 1-2 are sparse — data rows are often fuller
+  // than the header row.
   const countNonEmpty = (row: (string | number | boolean | Date | null)[] | undefined) =>
     (row ?? []).filter(c => c !== '' && c !== null && c !== undefined).length;
 
-  let headerRowIndex = 2; // row 3 (0-indexed) per spec
-  const row3NonEmpty = countNonEmpty(rawData[2]);
+  const looksLikeHeader = (row: (string | number | boolean | Date | null)[] | undefined): boolean => {
+    const cells = (row ?? []).filter((c): c is string | number | boolean | Date =>
+      c !== '' && c !== null && c !== undefined
+    ).map(c => String(c));
+    if (cells.length < 5) return false;
+    // Header-ness test: low numeric ratio + short-ish average length
+    const numericCells = cells.filter(c => /^[\s$%\-.,\d]+$/.test(c.trim())).length;
+    const numericRatio = numericCells / cells.length;
+    const avgLen = cells.reduce((s, c) => s + c.length, 0) / cells.length;
+    return numericRatio < 0.3 && avgLen < 40;
+  };
 
-  if (row3NonEmpty < 5) {
-    // Fall back to picking the row with the most non-empty cells in the first 10 rows
+  // Among the first 10 rows, pick the header-like row with the MOST cells.
+  // This distinguishes grouping labels (e.g. row 2 of the original BLD sheet —
+  // 5 "Design Information" / "Pre CCTV Information" style section labels)
+  // from the real column header row (row 3 with 30+ individual column labels).
+  let headerRowIndex = -1;
+  let bestCount = -1;
+  for (let i = 0; i < Math.min(10, rawData.length); i++) {
+    if (!looksLikeHeader(rawData[i])) continue;
+    const n = countNonEmpty(rawData[i]);
+    if (n > bestCount) {
+      bestCount = n;
+      headerRowIndex = i;
+    }
+  }
+
+  if (headerRowIndex === -1) {
+    // Nothing looked header-y — fall back to row with most non-empty cells.
     let bestIndex = 0;
     let bestNonEmpty = countNonEmpty(rawData[0]);
     for (let i = 1; i < Math.min(10, rawData.length); i++) {
@@ -92,8 +118,8 @@ export function parseExcelFile(buffer: ArrayBuffer, sheetName?: string): ParsedE
     }
     if (bestNonEmpty < 3) {
       throw new Error(
-        `Could not locate a header row: row 3 has ${row3NonEmpty} non-empty cells and the ` +
-        `best alternative in the first 10 rows has only ${bestNonEmpty}. Check the spreadsheet ` +
+        `Could not locate a header row: no row in the first 10 looks like column labels ` +
+        `and the fullest row has only ${bestNonEmpty} non-empty cells. Check the spreadsheet ` +
         `structure — the header row should have at least 3 column labels.`
       );
     }
