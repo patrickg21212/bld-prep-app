@@ -380,11 +380,36 @@ export default function App() {
     setScreen('segments');
   }, []);
 
+  // Track the segment currently in the editor so we can evict its giant base64
+  // image data when the user moves on. Without eviction, every segment edited
+  // in a session leaves a multi-MB PNG sitting in React state forever — which
+  // is what was crashing browser tabs on long sessions.
+  const currentSegmentIdRef = useRef<string | null>(null);
+
   const handleSegmentSelect = useCallback(async (segmentIndex: number) => {
     const proj = projectRef.current;
     if (!proj) return;
     const segment = proj.segments[segmentIndex];
     if (!segment) return;
+
+    // Evict the PREVIOUS segment's image data before loading the new one.
+    // We keep annotations (small) so the editor knows what shapes existed,
+    // but drop the giant imageDataUrl / rawImageDataUrl strings. They'll be
+    // re-hydrated from IndexedDB if the user navigates back, or all at once
+    // when entering BatchExport.
+    const prevId = currentSegmentIdRef.current;
+    if (prevId && prevId !== segment.repairNumber) {
+      setMapData(state => {
+        const existing = state[prevId];
+        if (!existing) return state;
+        if (!existing.imageDataUrl && !existing.rawImageDataUrl) return state;
+        return {
+          ...state,
+          [prevId]: { ...existing, imageDataUrl: null, rawImageDataUrl: null },
+        };
+      });
+    }
+    currentSegmentIdRef.current = segment.repairNumber;
 
     const draft = await getDraft(proj.id, segment.repairNumber);
     const obs: SegmentObservations = draft
@@ -397,9 +422,42 @@ export default function App() {
 
     setSelectedSegmentIndex(segmentIndex);
     setObservations(prev => ({ ...prev, [segment.repairNumber]: obs }));
-    setMapData(prev => ({ ...prev, [segment.repairNumber]: prev[segment.repairNumber] ?? ms }));
+    // Always reload map state from the freshly-fetched draft so an evicted
+    // segment gets its image back when the user returns to it.
+    setMapData(prev => ({ ...prev, [segment.repairNumber]: ms }));
     setScreen('editor');
   }, []);
+
+  // Hydrate map images from IndexedDB for all selected segments before
+  // entering the BatchExport screen. Segments that were edited earlier in
+  // the session have had their images evicted from in-memory mapData (see
+  // handleSegmentSelect) — without this hydrate, batch-exported PDFs would
+  // be missing maps for those segments.
+  const handleBatchExportEnter = useCallback(async () => {
+    const proj = projectRef.current;
+    if (!proj) {
+      setScreen('batch');
+      return;
+    }
+    const ids = Array.from(selectedSegments);
+    const hydrations = await Promise.all(
+      ids.map(id => getDraft(proj.id, id).then(d => ({ id, draft: d })))
+    );
+    setMapData(state => {
+      const next = { ...state };
+      for (const { id, draft } of hydrations) {
+        if (!draft) continue;
+        const existing = next[id] ?? { imageDataUrl: null, rawImageDataUrl: null, annotations: [] };
+        next[id] = {
+          imageDataUrl: draft.mapImageDataUrl ?? existing.imageDataUrl,
+          rawImageDataUrl: draft.mapRawImageDataUrl ?? existing.rawImageDataUrl,
+          annotations: draft.mapAnnotations ?? existing.annotations,
+        };
+      }
+      return next;
+    });
+    setScreen('batch');
+  }, [selectedSegments]);
 
   // Debounce timer per segmentId so rapid-fire keystrokes coalesce into one
   // IndexedDB write per ~400ms idle window. Without this, every character
@@ -677,7 +735,7 @@ export default function App() {
             onSegmentSelect={handleSegmentSelect}
             onSelectionChange={setSelectedSegments}
             onEditSettings={() => setScreen('settings')}
-            onBatchExport={() => setScreen('batch')}
+            onBatchExport={handleBatchExportEnter}
             onAddBlankSegment={handleAddBlankSegment}
           />
         )}

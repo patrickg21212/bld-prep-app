@@ -4,6 +4,7 @@ import React, {
   useEffect,
   useCallback,
   useMemo,
+  memo,
 } from 'react';
 import { Stage, Layer, Image as KImage, Ellipse, Text as KText } from 'react-konva';
 import Konva from 'konva';
@@ -135,7 +136,7 @@ const S = {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export default function MapAnnotation({
+function MapAnnotationImpl({
   initialImage,
   initialAnnotations,
   onChange,
@@ -1047,3 +1048,11 @@ export default function MapAnnotation({
     </div>
   );
 }
+
+// React.memo blocks re-renders when props haven't changed by identity.
+// Pairs with the App-level state-shape changes — most parent re-renders
+// during keystrokes pass identical props by reference, so the whole Konva
+// tree no longer reconciles per character typed.
+const MapAnnotation = memo(MapAnnotationImpl);
+export default MapAnnotation;
+

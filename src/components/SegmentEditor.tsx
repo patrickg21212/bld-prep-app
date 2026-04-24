@@ -1,4 +1,4 @@
-import React, { useCallback, useState, lazy, Suspense } from 'react';
+import React, { useCallback, useState, lazy, Suspense, memo } from 'react';
 import type { Segment, SegmentObservations, SegmentFieldKey, WaterFlow, MhLocation, AnnotationData } from '../lib/types';
 import MapAnnotation from './MapAnnotation';
 
@@ -27,7 +27,7 @@ interface Props {
   onNavigate: (dir: 1 | -1) => void;
 }
 
-export default function SegmentEditor({
+function SegmentEditorImpl({
   segment,
   segmentIndex,
   totalSegments,
@@ -444,6 +444,13 @@ export default function SegmentEditor({
     </div>
   );
 }
+
+// React.memo blocks re-renders when props haven't changed by identity.
+// Combined with App.tsx's debounced saveDraft and stable callback refs,
+// this stops every keystroke from cascading through MapAnnotation's Konva
+// tree on segments not currently being edited.
+const SegmentEditor = memo(SegmentEditorImpl);
+export default SegmentEditor;
 
 // --- Sub-components ---
 
