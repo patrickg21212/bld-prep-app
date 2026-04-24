@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { PrepField } from '../lib/types';
 import { PREP_FIELD_LABELS } from '../lib/types';
+import { columnIndexToLetter } from '../lib/excel';
 
 interface Props {
   headers: string[];
@@ -40,7 +41,7 @@ export default function ColumnMapper({ headers, confident, uncertain, onComplete
 
   const columnOptions = [
     { value: '', label: '— not mapped —' },
-    ...headers.map((h, i) => ({ value: String(i), label: `Col ${i + 1}: ${h || '(empty)'}` })),
+    ...headers.map((h, i) => ({ value: String(i), label: `Col ${columnIndexToLetter(i)}: ${h || '(empty)'}` })),
   ];
 
   const confidentFields = ALL_FIELDS.filter(f => confident[f] !== undefined);

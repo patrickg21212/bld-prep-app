@@ -1,6 +1,17 @@
 import * as XLSX from 'xlsx';
 import type { PrepField, Segment } from './types';
 
+export function columnIndexToLetter(index: number): string {
+  let n = index + 1;
+  let s = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
 export interface SheetInfo {
   name: string;
   rowCount: number;

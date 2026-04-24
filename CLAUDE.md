@@ -179,6 +179,7 @@ Excel Upload → Column Auto-Mapper → Date Range Filter (weekly batch)
 | 2026-04-14 | Dude | Deployed to GitHub + Vercel staging: https://bld-prep-staging.vercel.app |
 | 2026-04-16 | Dude | Dropped auto-orientation (plans aren't always red); auto-crop now places neutral circle. Added worker edit toolbar: Wider/Narrower/Taller/Shorter, Rotate ±15°/90°, Delete. AnnotationData gained `rotation`. |
 | 2026-04-21 | Byte | 2026 Mainline Prep form rewrite + session operator + full field editability + no-spreadsheet manual mode. Ships to https://bld-prep-2026.vercel.app (preview). |
+| 2026-04-24 | Byte | MapViewer: searched-address pin with draggable marker + permanent tooltip. Pin + address label burned into captured PNG (red teardrop + halo-outlined text). Dropped OSM tile overlay — replaced by query-sourced label, which is more reliable than OSM's patchy house-number data. Clean `pnpm build`. |
 
 **UPDATE THIS TABLE** after every session that modifies the app.
 

@@ -18,7 +18,9 @@ interface Props {
   canCopyPrevious: boolean;
   plansData: ArrayBuffer | null;
   plansNumPages: number;
-  onObservationChange: (obs: SegmentObservations) => void;
+  onObservationChange: (
+    obsOrUpdater: SegmentObservations | ((prev: SegmentObservations) => SegmentObservations),
+  ) => void;
   onMapChange: (compositeUrl: string | null, rawUrl: string | null, annotations: AnnotationData[]) => void;
   onCopyPrevious: () => void;
   onPreviewPdf: () => void;
@@ -47,9 +49,15 @@ export default function SegmentEditor({
   const [showPlanViewer, setShowPlanViewer] = useState(false);
   const [showMapViewer, setShowMapViewer] = useState(false);
 
+  // Pass updater functions to onObservationChange so rapid-fire edits compose
+  // against the latest state rather than a stale closure snapshot. Previously
+  // two updates fired in the same tick (e.g. typing pipe size then toggling a
+  // Yes/No) both built their next state from the same stale `observations`
+  // prop, so the second update silently dropped the first — which made
+  // overrides disappear by the time the PDF was generated.
   const set = useCallback(<K extends keyof SegmentObservations>(key: K, val: SegmentObservations[K]) => {
-    onObservationChange({ ...observations, [key]: val });
-  }, [observations, onObservationChange]);
+    onObservationChange(prev => ({ ...prev, [key]: val }));
+  }, [onObservationChange]);
 
   // Per-field overrides — segment fields pulled from the spreadsheet can be
   // edited on the prep sheet. Override is stored in observations.fieldOverrides.
@@ -58,17 +66,19 @@ export default function SegmentEditor({
     return override !== undefined ? override : fallback;
   };
   const setFieldOverride = useCallback((key: SegmentFieldKey, val: string, fallback: string) => {
-    const existing = observations.fieldOverrides ?? {};
-    const next = { ...existing };
-    // If user clears override back to the original value, drop the override
-    // entirely so the prep sheet re-follows the spreadsheet on future edits.
-    if (val === fallback) {
-      delete next[key];
-    } else {
-      next[key] = val;
-    }
-    onObservationChange({ ...observations, fieldOverrides: next });
-  }, [observations, onObservationChange]);
+    onObservationChange(prev => {
+      const existing = prev.fieldOverrides ?? {};
+      const next = { ...existing };
+      // If user clears override back to the original value, drop the override
+      // entirely so the prep sheet re-follows the spreadsheet on future edits.
+      if (val === fallback) {
+        delete next[key];
+      } else {
+        next[key] = val;
+      }
+      return { ...prev, fieldOverrides: next };
+    });
+  }, [onObservationChange]);
 
   // Parse sheet number — returns [preferredPage, ...otherPages]
   // "9/10" → [10, 9] (second page = aerial/satellite, preferred)

@@ -381,15 +381,37 @@ export default function App() {
     setScreen('editor');
   }, []);
 
-  const handleObservationChange = useCallback(async (segmentId: string, obs: SegmentObservations) => {
+  const handleObservationChange = useCallback(async (
+    segmentId: string,
+    obsOrUpdater: SegmentObservations | ((prev: SegmentObservations) => SegmentObservations),
+  ) => {
     const proj = projectRef.current;
     if (!proj) return;
-    setObservations(prev => ({ ...prev, [segmentId]: obs }));
+
+    // Resolve against the LATEST state via setState's functional form so
+    // rapid-fire edits (a field edit followed by a toggle in the same tick)
+    // compose correctly. Without this, two updates built from stale closures
+    // would clobber each other — which is how previously-typed pipe size /
+    // street name overrides were disappearing by the time of PDF export.
+    let resolvedObs: SegmentObservations | null = null;
+    setObservations(prev => {
+      const prevForSegment = prev[segmentId] ?? { ...DEFAULT_OBSERVATIONS };
+      const nextObs =
+        typeof obsOrUpdater === 'function'
+          ? (obsOrUpdater as (p: SegmentObservations) => SegmentObservations)(prevForSegment)
+          : obsOrUpdater;
+      resolvedObs = nextObs;
+      return { ...prev, [segmentId]: nextObs };
+    });
+
+    // Persist to IndexedDB with the just-resolved observations so the draft
+    // on disk always matches what's on screen.
+    if (!resolvedObs) return;
     const map = mapDataRef.current[segmentId];
     await saveDraft({
       projectId: proj.id,
       segmentId,
-      observations: obs,
+      observations: resolvedObs,
       mapImageDataUrl: map?.imageDataUrl ?? undefined,
       mapAnnotations: map?.annotations ?? undefined,
       savedAt: Date.now(),

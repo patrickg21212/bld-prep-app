@@ -3,23 +3,18 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 // Tile sources — all free, no API key, no billing.
-// We stack four layers to deliver a hybrid view with street names AND house
-// numbers. Satellite alone isn't enough for the prep sheet reader to know
-// which house/segment the tech was at.
+// We stack three layers for a hybrid aerial view. OSM is dropped in favor of
+// a burned-in pin + address label sourced from the search query, because
+// OSM's house number tile data is too patchy across most US field areas.
 // 1. Esri World Imagery — satellite base.
 // 2. Esri World Transportation — street network + major road labels.
 // 3. Esri World Boundaries and Places — city/neighborhood/area labels.
-// 4. OSM standard — only no-key source for US house numbers. Blended with
-//    mix-blend-mode: multiply so the dark ink (labels, building outlines,
-//    house numbers) shows through without washing out the satellite.
 const ESRI_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const ESRI_TRANSPORT_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}';
 const ESRI_PLACES_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
-const OSM_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 const ESRI_ATTRIBUTION = 'Esri, Maxar, Earthstar Geographics, and the GIS User Community';
-const OSM_ATTRIBUTION = '© OpenStreetMap contributors';
-const COMBINED_ATTRIBUTION = `${ESRI_ATTRIBUTION} | ${OSM_ATTRIBUTION}`;
+const COMBINED_ATTRIBUTION = ESRI_ATTRIBUTION;
 
 // USGS National Map (kept as a constant for quick flip if Esri ever blocks).
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -30,7 +25,6 @@ const USGS_ATTRIBUTION = 'USGS The National Map: Orthoimagery';
 // Overlay opacity. Kept here so capture() matches live rendering exactly.
 const TRANSPORT_OPACITY = 0.9;
 const PLACES_OPACITY = 0.9;
-const OSM_OPACITY = 0.55;
 
 // Nominatim requires a contact UA + rate limit of 1 req/sec.
 // Ref: https://operations.osmfoundation.org/policies/nominatim/
@@ -59,6 +53,34 @@ interface GeoResult {
   display_name: string;
   lat: string;
   lon: string;
+  address?: {
+    house_number?: string;
+    road?: string;
+    [key: string]: string | undefined;
+  };
+}
+
+interface PinState {
+  lat: number;
+  lon: number;
+  label: string;
+}
+
+// Compute the short, pin-friendly label from a Nominatim result and the
+// original user query. Preference order:
+//   1. "<house_number> <road>" when Nominatim returns structured address fields
+//   2. Original user query if it looks like a street address
+//   3. First comma-separated segment of display_name
+// Output is trimmed and capped at 80 chars so it always fits the canvas label.
+function labelFromGeocode(result: GeoResult, query: string): string {
+  const hn = result.address?.house_number?.trim();
+  const road = result.address?.road?.trim();
+  if (hn && road) return `${hn} ${road}`.slice(0, 80);
+  const qFirst = query.split(',')[0]?.trim();
+  if (qFirst && /\d/.test(qFirst)) return qFirst.slice(0, 80);
+  const dnFirst = result.display_name.split(',')[0]?.trim();
+  if (dnFirst) return dnFirst.slice(0, 80);
+  return query.trim().slice(0, 80);
 }
 
 export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
@@ -67,8 +89,11 @@ export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const transportLayerRef = useRef<L.TileLayer | null>(null);
   const placesLayerRef = useRef<L.TileLayer | null>(null);
-  const osmLayerRef = useRef<L.TileLayer | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
   const lastGeocodeAtRef = useRef<number>(0);
+  // Mirror of `pin` state so the marker's dragend handler (registered once)
+  // can update the latest label without stale-closure issues.
+  const pinRef = useRef<PinState | null>(null);
 
   const [address, setAddress] = useState(initialAddress ?? '');
   const [searching, setSearching] = useState(false);
@@ -76,6 +101,7 @@ export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
   const [tileError, setTileError] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [crop, setCrop] = useState<CropRect | null>(null);
+  const [pin, setPin] = useState<PinState | null>(null);
 
   // Initialize the map once the container is mounted.
   useEffect(() => {
@@ -122,30 +148,10 @@ export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
     });
     placesLayer.addTo(map);
 
-    // Overlay 3: OSM — house numbers + fine street detail. Blended with
-    // mix-blend-mode: multiply via `.osm-labels-overlay` CSS class so only
-    // the dark labels/outlines bleed through the satellite.
-    // OSM tile usage policy (https://operations.osmfoundation.org/policies/tiles/)
-    // requires visible attribution (set below) and a reasonable rate — we only
-    // issue one request per visible tile, which the Leaflet tile cache handles.
-    // User-Agent can't be overridden from the browser (forbidden header), so
-    // compliance relies on Origin + rate limiting.
-    const osmLayer = L.tileLayer(OSM_TILES, {
-      attribution: OSM_ATTRIBUTION,
-      maxZoom: 19,
-      crossOrigin: 'anonymous',
-      opacity: OSM_OPACITY,
-      className: 'osm-labels-overlay',
-      pane: 'tilePane',
-      zIndex: 4,
-    });
-    osmLayer.addTo(map);
-
     mapRef.current = map;
     tileLayerRef.current = baseLayer;
     transportLayerRef.current = transportLayer;
     placesLayerRef.current = placesLayer;
-    osmLayerRef.current = osmLayer;
 
     // Seed a crop rect centered in the viewport so the user has something to
     // adjust immediately, matching the "click to mark, then confirm" pattern
@@ -174,7 +180,7 @@ export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
       tileLayerRef.current = null;
       transportLayerRef.current = null;
       placesLayerRef.current = null;
-      osmLayerRef.current = null;
+      markerRef.current = null;
     };
   }, []);
 
@@ -202,7 +208,8 @@ export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
     setSearching(true);
     setSearchError(null);
     try {
-      const url = `${NOMINATIM_URL}?format=json&limit=1&q=${encodeURIComponent(q)}`;
+      // `addressdetails=1` gives us house_number + road for a clean short label.
+      const url = `${NOMINATIM_URL}?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(q)}`;
       const res = await fetch(url, {
         headers: {
           // Browsers ignore UA override on fetch (it's a forbidden header),
@@ -230,6 +237,10 @@ export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
         setSearchError('Geocoder returned an unrecognized result.');
         return;
       }
+      const label = labelFromGeocode(first, q);
+      const next: PinState = { lat, lon, label };
+      setPin(next);
+      pinRef.current = next;
       const map = mapRef.current;
       if (map) {
         map.setView([lat, lon], 19);
@@ -240,6 +251,71 @@ export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
       setSearching(false);
     }
   }, []);
+
+  // Keep ref in sync so the marker dragend handler always reads the latest pin.
+  useEffect(() => {
+    pinRef.current = pin;
+  }, [pin]);
+
+  // Sync the Leaflet marker + permanent tooltip whenever the pin changes.
+  // The marker is created lazily on first pin; subsequent pin updates just
+  // move it and swap the tooltip content. Drag handler is attached once.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (!pin) {
+      if (markerRef.current) {
+        try { markerRef.current.remove(); } catch { /* ignore */ }
+        markerRef.current = null;
+      }
+      return;
+    }
+
+    if (!markerRef.current) {
+      // Use a divIcon so we don't have to wrangle Leaflet's default marker
+      // asset URLs through Vite/Astro's bundler. SVG drawn inline, anchored
+      // at its bottom tip so the tip touches the exact lat/lng.
+      const pinSvg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="40" viewBox="0 0 28 40">
+          <path d="M14 0 C6.3 0 0 6.3 0 14 C0 24.5 14 40 14 40 S28 24.5 28 14 C28 6.3 21.7 0 14 0 Z"
+                fill="#DC2626" stroke="#ffffff" stroke-width="2"/>
+          <circle cx="14" cy="14" r="5" fill="#ffffff"/>
+        </svg>`;
+      const icon = L.divIcon({
+        className: 'bld-map-pin',
+        html: pinSvg,
+        iconSize: [28, 40],
+        iconAnchor: [14, 40],
+        tooltipAnchor: [14, -20],
+      });
+      const marker = L.marker([pin.lat, pin.lon], { icon, draggable: true });
+      marker.addTo(map);
+      marker.bindTooltip(pin.label, {
+        permanent: true,
+        direction: 'right',
+        offset: [10, 0],
+        className: 'bld-map-pin-tooltip',
+      });
+      marker.on('dragend', () => {
+        const latlng = marker.getLatLng();
+        const current = pinRef.current;
+        if (!current) return;
+        const next: PinState = {
+          lat: latlng.lat,
+          lon: latlng.lng,
+          label: current.label,
+        };
+        setPin(next);
+        pinRef.current = next;
+      });
+      markerRef.current = marker;
+    } else {
+      markerRef.current.setLatLng([pin.lat, pin.lon]);
+      const tooltip = markerRef.current.getTooltip();
+      if (tooltip) tooltip.setContent(pin.label);
+    }
+  }, [pin]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -304,8 +380,8 @@ export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
       const maxTileY = Math.floor(maxPxY / tileSize);
 
       // Safety cap so a bad crop can't try to fetch thousands of tiles.
-      // 200 tiles per layer × 4 layers = 800 requests max. Esri + OSM can
-      // both handle that for a one-off capture.
+      // 200 tiles per layer × 3 layers = 600 requests max. Esri handles that
+      // comfortably for a one-off capture.
       const tileCount = (maxTileX - minTileX + 1) * (maxTileY - minTileY + 1);
       if (tileCount > 200) {
         throw new Error('Crop too large for current zoom. Zoom in or shrink the box.');
@@ -365,9 +441,6 @@ export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
       await paintLayer(ESRI_TRANSPORT_TILES, { alpha: TRANSPORT_OPACITY, composite: 'source-over' });
       // 3. Places (city/neighborhood labels).
       await paintLayer(ESRI_PLACES_TILES, { alpha: PLACES_OPACITY, composite: 'source-over' });
-      // 4. OSM (house numbers / fine detail) — multiply so dark ink shows
-      //    through without washing out the satellite. Reset composite after.
-      await paintLayer(OSM_TILES, { alpha: OSM_OPACITY, composite: 'multiply' });
       gridCtx.globalCompositeOperation = 'source-over';
       gridCtx.globalAlpha = 1;
 
@@ -389,9 +462,21 @@ export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
         0, 0, outWidth, outHeight,
       );
 
-      // Burn the combined Esri + OSM attribution into the bottom-right
-      // corner so the output carries credit even after it's saved into the
-      // PDF. OSM tile usage policy requires visible attribution.
+      // Burn the address pin + label into the crop if the pinned lat/lng
+      // falls inside the visible area. Skips cleanly if the user panned the
+      // pin off-screen before cropping. Drawn here (on cropCtx, after the
+      // cropCanvas.drawImage) so the pin is in final-output pixel space.
+      if (pin) {
+        const pinWorld = map.project([pin.lat, pin.lon], z);
+        const pinX = pinWorld.x - minPxX;
+        const pinY = pinWorld.y - minPxY;
+        if (pinX >= 0 && pinX <= outWidth && pinY >= 0 && pinY <= outHeight) {
+          drawPinAndLabel(cropCtx, pinX, pinY, pin.label, outWidth, outHeight);
+        }
+      }
+
+      // Burn the Esri attribution into the bottom-right corner so the output
+      // carries credit even after it's saved into the PDF.
       const attrText = COMBINED_ATTRIBUTION;
       cropCtx.font = '10px system-ui, sans-serif';
       const padding = 4;
@@ -411,7 +496,7 @@ export default function MapViewer({ initialAddress, onCrop, onClose }: Props) {
     } finally {
       setCapturing(false);
     }
-  }, [crop, onCrop]);
+  }, [crop, onCrop, pin]);
 
   // Crop box dragging/resizing ------------------------------------------------
   // Simple: drag body to move, drag corner handles to resize. Kept small on
@@ -637,6 +722,137 @@ function Handle({ pos, onPointerDown }: {
   if (pos === 'sw') { style.left = offset; style.bottom = offset; style.cursor = 'nesw-resize'; }
   if (pos === 'se') { style.right = offset; style.bottom = offset; style.cursor = 'nwse-resize'; }
   return <div style={style} onPointerDown={onPointerDown} />;
+}
+
+// Draws a red map-pin icon + address label on the captured crop at the
+// given pixel coordinates. The pin's tip points exactly at (x, y) so the
+// lat/lng reference is preserved. The label renders to the right of the pin
+// with a halo (white stroke behind black fill) for legibility against any
+// satellite background — no opaque background box that would cover roofs.
+// Wraps the label onto a second line if a single line exceeds ~40% of the
+// output width, and truncates with ellipsis if it would still overflow.
+function drawPinAndLabel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  label: string,
+  outWidth: number,
+  outHeight: number,
+) {
+  ctx.save();
+
+  // Pin geometry — matches the live divIcon above for consistency. Tip at
+  // (x, y); body is 28w x 40h.
+  const pinW = 28;
+  const pinH = 40;
+  const headR = 9;
+  const headCx = x;
+  const headCy = y - pinH + headR + 5;
+
+  // Teardrop body.
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(x + pinW / 2, y - pinH * 0.55, headCx + headR, headCy);
+  ctx.arc(headCx, headCy, headR, 0, Math.PI, true);
+  ctx.quadraticCurveTo(x - pinW / 2, y - pinH * 0.55, x, y);
+  ctx.closePath();
+  ctx.fillStyle = '#DC2626';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.fill();
+  ctx.stroke();
+
+  // White inner dot.
+  ctx.beginPath();
+  ctx.arc(headCx, headCy, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  // Label rendering -----------------------------------------------------
+  ctx.font = 'bold 15px system-ui, -apple-system, "Segoe UI", sans-serif';
+  ctx.textBaseline = 'middle';
+  const labelX = headCx + headR + 6;
+  const labelYCenter = headCy;
+
+  // Wrap onto 2 lines max. First line breaks at the last space that fits
+  // within maxLineW; remainder goes to line 2, truncated with ellipsis
+  // if still too long.
+  const maxLineW = Math.max(80, outWidth * 0.45);
+  const lines = wrapLabel(ctx, label, maxLineW, 2);
+
+  // Clamp label X so it doesn't run off the right edge at small crops —
+  // flip to the left of the pin if there's not enough room on the right.
+  const longestLine = lines.reduce(
+    (w, ln) => Math.max(w, ctx.measureText(ln).width),
+    0,
+  );
+  let drawX = labelX;
+  if (drawX + longestLine > outWidth - 6) {
+    const leftX = headCx - headR - 6 - longestLine;
+    if (leftX >= 6) {
+      drawX = leftX;
+    }
+  }
+
+  const lineHeight = 18;
+  const startY = labelYCenter - ((lines.length - 1) * lineHeight) / 2;
+  for (let i = 0; i < lines.length; i++) {
+    const ty = startY + i * lineHeight;
+    // White halo for contrast against any satellite imagery.
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx.strokeText(lines[i], drawX, ty);
+    ctx.fillStyle = '#000000';
+    ctx.fillText(lines[i], drawX, ty);
+  }
+
+  // outHeight is referenced only to signal intent (caller guarantees y is
+  // within bounds). Silence unused-var linting without changing signature.
+  void outHeight;
+
+  ctx.restore();
+}
+
+// Greedy word-wrap onto up to `maxLines` lines of width <= maxW. The last
+// line is truncated with an ellipsis if remaining text still overflows.
+function wrapLabel(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxW: number,
+  maxLines: number,
+): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (ctx.measureText(candidate).width <= maxW) {
+      current = candidate;
+      continue;
+    }
+    if (current) {
+      lines.push(current);
+      current = word;
+    } else {
+      // Single word longer than maxW — just push it; final truncation
+      // pass below handles it.
+      lines.push(word);
+      current = '';
+    }
+    if (lines.length >= maxLines) break;
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+
+  // If we still have words left over, append ellipsis to the final line.
+  const joined = lines.join(' ');
+  if (joined.length < text.length && lines.length > 0) {
+    let last = lines[lines.length - 1];
+    while (last.length > 0 && ctx.measureText(last + '…').width > maxW) {
+      last = last.slice(0, -1);
+    }
+    lines[lines.length - 1] = last + '…';
+  }
+  return lines;
 }
 
 const toolBtnStyle: React.CSSProperties = {

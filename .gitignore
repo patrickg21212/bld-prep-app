@@ -23,9 +23,3 @@ pnpm-debug.log*
 # jetbrains setting folder
 .idea/
 .vercel
-
-# Patrick's real BLD work files — never commit (added 2026-04-24 after incident)
-HOPEDALE*.xlsx
-*TRACKING*SHEET*.xlsx
-*TRACKING*SHEET*.xls
-Employee*Handbook*.pdf

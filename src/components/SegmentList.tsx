@@ -77,6 +77,9 @@ export default function SegmentList({
     }
   };
 
+  // Toggle a single segment's selection. Pure user-driven — never infers from
+  // edit state or any other derived data. Functional-style Set construction
+  // avoids any stale-closure risk if clicks fire rapidly.
   const toggleSegment = (repairNumber: string) => {
     const next = new Set(selectedSegments);
     if (next.has(repairNumber)) next.delete(repairNumber);
@@ -84,13 +87,37 @@ export default function SegmentList({
     onSelectionChange(next);
   };
 
+  // True only when every currently-filtered segment is in the selection set.
+  // Guards against the false-positive where sizes match by coincidence (e.g.
+  // 3 selected from week 1, filter flipped to week 2 which also has 3 rows).
+  const allFilteredSelected =
+    filteredSegments.length > 0 &&
+    filteredSegments.every(({ seg }) => selectedSegments.has(seg.repairNumber));
+
   const toggleAll = () => {
-    if (selectedSegments.size === filteredSegments.length) {
-      onSelectionChange(new Set());
+    if (allFilteredSelected) {
+      // Un-select just the filtered rows, preserve any selections outside the filter
+      const next = new Set(selectedSegments);
+      filteredSegments.forEach(({ seg }) => next.delete(seg.repairNumber));
+      onSelectionChange(next);
     } else {
-      onSelectionChange(new Set(filteredSegments.map(({ seg }) => seg.repairNumber)));
+      // Add every filtered row to the selection
+      const next = new Set(selectedSegments);
+      filteredSegments.forEach(({ seg }) => next.add(seg.repairNumber));
+      onSelectionChange(next);
     }
   };
+
+  // Quick action: select every edited segment in the current filter view
+  const selectAllEdited = () => {
+    const next = new Set(selectedSegments);
+    filteredSegments.forEach(({ seg }) => {
+      if (observations[seg.repairNumber]) next.add(seg.repairNumber);
+    });
+    onSelectionChange(next);
+  };
+
+  const clearAll = () => onSelectionChange(new Set());
 
   const completedCount = project.segments.filter(
     s => observations[s.repairNumber]
@@ -221,7 +248,7 @@ export default function SegmentList({
         }}>
           <input
             type="checkbox"
-            checked={filteredSegments.length > 0 && selectedSegments.size === filteredSegments.length}
+            checked={allFilteredSelected}
             onChange={toggleAll}
             style={{ cursor: 'pointer', accentColor: 'var(--accent)' }}
             title="Select all for export"
@@ -391,15 +418,27 @@ export default function SegmentList({
               }}>
                 <input
                   type="checkbox"
-                  checked={filteredSegments.length > 0 && selectedSegments.size === filteredSegments.length}
+                  checked={allFilteredSelected}
                   onChange={toggleAll}
                   style={{ cursor: 'pointer', accentColor: 'var(--accent)' }}
                 />
                 Select all ({filteredSegments.length})
               </label>
+              <button
+                onClick={selectAllEdited}
+                style={{
+                  background: 'none', border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)', fontSize: 14,
+                  padding: '4px 10px', borderRadius: 4,
+                  cursor: 'pointer',
+                }}
+                title="Select every segment that has been edited in the current view"
+              >
+                Select edited
+              </button>
               {selectedSegments.size > 0 && (
                 <button
-                  onClick={() => onSelectionChange(new Set())}
+                  onClick={clearAll}
                   style={{
                     background: 'none', border: 'none',
                     color: 'var(--text-muted)', fontSize: 14,

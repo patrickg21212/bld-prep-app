@@ -145,9 +145,22 @@ input, select, textarea, button {
   to { transform: rotate(360deg); }
 }
 
-/* MapViewer — OSM house-number overlay. mix-blend-mode: multiply lets only
-   the dark ink (labels, house numbers, building outlines) bleed through the
-   satellite basemap without washing out the imagery. */
-.osm-labels-overlay {
-  mix-blend-mode: multiply;
+/* MapViewer — address pin label. Permanent tooltip attached to the Leaflet
+   marker, styled for legibility against the satellite basemap. */
+.bld-map-pin-tooltip {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  color: #111;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.bld-map-pin-tooltip::before {
+  display: none; /* hide the default tooltip pointer arrow */
+}
+.bld-map-pin {
+  background: transparent !important;
+  border: none !important;
 }

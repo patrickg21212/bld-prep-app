@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import type { AppProject, PrepField } from '../lib/types';
 import { PREP_FIELD_LABELS } from '../lib/types';
 import type { MappingWarning } from '../lib/fuzzy';
+import { columnIndexToLetter } from '../lib/excel';
 
 interface Props {
   project: AppProject;
@@ -113,7 +114,7 @@ export default function ProjectSettings({ project, initialJobNumber, initialJobN
               >
                 <option value="">{w.suggestion ? 'Or pick a different column...' : 'Pick the column with this data...'}</option>
                 {project.columnHeaders.map((h, i) => (
-                  h.trim() ? <option key={i} value={i}>Col {i + 1}: {h}</option> : null
+                  h.trim() ? <option key={i} value={i}>Col {columnIndexToLetter(i)}: {h}</option> : null
                 ))}
               </select>
             </div>

@@ -261,8 +261,16 @@ export default function MapAnnotation({
 
   // Composite generation: runs after Konva has painted, bakes annotations
   // into the exported image so the PDF preview shows them.
+  //
+  // Defensive: if the user is mid-drag (drawing === true), do NOT call
+  // toDataURL — it's a synchronous full-canvas read that reliably causes
+  // visible flicker on the preview shape mid-drag. The dep list means this
+  // effect shouldn't fire during a drag at all (annotations/imageDataUrl
+  // don't change until mouseup), but belt-and-suspenders prevents any
+  // future refactor from accidentally wiring it into the drag path.
   useEffect(() => {
     if (!loadedImage) return;
+    if (drawing) return;
     // When annotations are cleared (user deleted the last one), the previously
     // saved composite still has the baked-in circle — exported PDFs would show
     // a ghost mark. Overwrite the composite with the raw image so the stale
@@ -278,7 +286,7 @@ export default function MapAnnotation({
       }
     });
     return () => cancelAnimationFrame(raf);
-  }, [imageDataUrl, annotations, loadedImage]);
+  }, [imageDataUrl, annotations, loadedImage, drawing]);
 
   /* ---- load image from data URL ----------------------------------- */
   useEffect(() => {
@@ -310,11 +318,18 @@ export default function MapAnnotation({
   }, [loadedImage]);
 
   /* ---- resize observer -------------------------------------------- */
+  // Round to whole pixels and only update when the width actually changes —
+  // a naive setStageW(contentRect.width) creates a feedback loop on some
+  // browsers: the canvas resize nudges the container width by a sub-pixel,
+  // ResizeObserver fires, we setState, Konva re-lays out, container width
+  // nudges again. Symptom: the preview shape flickers during drag because
+  // the Stage is being remounted on every frame.
   useEffect(() => {
     if (!containerRef.current) return;
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) {
-        setStageW(e.contentRect.width);
+        const w = Math.round(e.contentRect.width);
+        setStageW((prev) => (prev === w ? prev : w));
       }
     });
     ro.observe(containerRef.current);
@@ -954,20 +969,33 @@ export default function MapAnnotation({
               return null;
             })}
 
-            {/* Draw preview (while dragging ellipse) */}
-            {drawPreview && (
-              <Ellipse
-                x={drawPreview.x}
-                y={drawPreview.y}
-                radiusX={drawPreview.radiusX ?? 0}
-                radiusY={drawPreview.radiusY ?? 0}
-                stroke={drawPreview.stroke ?? activeColor}
-                strokeWidth={drawPreview.strokeWidth ?? 3}
-                fill="transparent"
-                dash={[6, 3]}
-                listening={false}
-              />
-            )}
+            {/* Draw preview (while dragging ellipse)
+             *
+             * Always render — toggle via `visible` — so react-konva keeps the
+             * same Konva node across mousemove re-renders instead of
+             * un/re-mounting it. Conditional `{drawPreview && <Ellipse ...>}`
+             * caused the preview to pop off/on during drag because the node
+             * was being destroyed and recreated on every frame change.
+             *
+             * perfectDrawEnabled=false + shadowForStrokeEnabled=false skip
+             * Konva's hi-fi dual-pass redraw, which is overkill for a dashed
+             * preview and measurably smoother at 60Hz.
+             */}
+            <Ellipse
+              visible={!!drawPreview}
+              x={drawPreview?.x ?? 0}
+              y={drawPreview?.y ?? 0}
+              radiusX={drawPreview?.radiusX ?? 0}
+              radiusY={drawPreview?.radiusY ?? 0}
+              rotation={drawPreview?.rotation ?? 0}
+              stroke={drawPreview?.stroke ?? activeColor}
+              strokeWidth={drawPreview?.strokeWidth ?? 3}
+              fill="transparent"
+              dash={[6, 3]}
+              listening={false}
+              perfectDrawEnabled={false}
+              shadowForStrokeEnabled={false}
+            />
           </Layer>
         </Stage>
 
