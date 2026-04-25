@@ -525,21 +525,41 @@ export default function App() {
     }, 400);
   }, []);
 
-  const handleMapChange = useCallback(async (segmentId: string, compositeUrl: string | null, rawUrl: string | null, anns: AnnotationData[]) => {
+  // Debounce IDB writes for map changes too. Every annotation edit fires
+  // handleMapChange (via the 350ms-debounced composite effect upstream) —
+  // without this debounce, rapid ellipse adjustments queue back-to-back
+  // saveDraft transactions, each holding the full multi-KB composite
+  // string in transaction memory until commit. 1000ms wait coalesces
+  // rapid edits into one persistence op per settle.
+  const saveMapTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  const handleMapChange = useCallback((segmentId: string, compositeUrl: string | null, rawUrl: string | null, anns: AnnotationData[]) => {
     const proj = projectRef.current;
     if (!proj) return;
+    // In-memory state update is immediate so the editor sees its own changes.
     const ms: MapState = { imageDataUrl: compositeUrl, rawImageDataUrl: rawUrl, annotations: anns };
     setMapData(prev => ({ ...prev, [segmentId]: ms }));
-    const obs = observationsRef.current[segmentId] ?? DEFAULT_OBSERVATIONS;
-    await saveDraft({
-      projectId: proj.id,
-      segmentId,
-      observations: obs,
-      mapImageDataUrl: compositeUrl ?? undefined,
-      mapRawImageDataUrl: rawUrl ?? undefined,
-      mapAnnotations: anns,
-      savedAt: Date.now(),
-    });
+
+    // Debounced IDB write. The latest values are pulled from refs at flush
+    // time so we always persist the freshest state, never a stale snapshot.
+    if (saveMapTimers.current[segmentId]) {
+      clearTimeout(saveMapTimers.current[segmentId]);
+    }
+    saveMapTimers.current[segmentId] = setTimeout(() => {
+      const map = mapDataRef.current[segmentId];
+      const obs = observationsRef.current[segmentId] ?? DEFAULT_OBSERVATIONS;
+      if (!map) return;
+      saveDraft({
+        projectId: proj.id,
+        segmentId,
+        observations: obs,
+        mapImageDataUrl: map.imageDataUrl ?? undefined,
+        mapRawImageDataUrl: map.rawImageDataUrl ?? undefined,
+        mapAnnotations: map.annotations,
+        savedAt: Date.now(),
+      });
+      delete saveMapTimers.current[segmentId];
+    }, 1000);
   }, []);
 
   const handleCopyPrevious = useCallback(() => {

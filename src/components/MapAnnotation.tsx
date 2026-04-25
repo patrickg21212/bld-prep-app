@@ -271,13 +271,14 @@ function MapAnnotationImpl({
     // produce a fresh multi-MB base64 string + IndexedDB write per change.
     // Wait for the user to settle before paying the toDataURL cost.
     const t = setTimeout(() => {
-      // JPEG instead of PNG: jsPDF embeds JPEG more efficiently and the
-      // composite is photo-like (satellite/plans + ink overlay), not pure
-      // line-art. Cuts each composite from ~1-3MB to ~200-500KB.
+      // JPEG instead of PNG, quality 0.7. Each composite drops to
+      // ~80-200KB, cutting the per-edit memory churn through React state
+      // and IndexedDB. PDF embed quality at the prep sheet's schematic
+      // size is indistinguishable from higher quality.
       const composite = stageRef.current?.toDataURL({
         pixelRatio: 1,
         mimeType: 'image/jpeg',
-        quality: 0.85,
+        quality: 0.7,
       });
       if (composite) {
         onChangeRef.current(composite, imageDataUrl, annotations);
