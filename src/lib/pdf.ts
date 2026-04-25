@@ -442,17 +442,35 @@ function renderPage(doc: jsPDF, input: PdfInput): void {
   const schematicBottom = PAGE_H - MARGIN_R - commentsAreaH - 4;
   const schematicH = schematicBottom - schematicTop;
 
-  // Embed map image if provided — fills almost the whole schematic rect.
+  // Embed map image if provided — fit inside schematic rect while preserving
+  // aspect ratio. Earlier code passed fixed width AND height, which stretched
+  // the cropped image to fill the rect and made every map look blown up.
   if (mapImageDataUrl) {
     const imgPadding = 3;
-    const imgX = MARGIN_L + imgPadding;
-    const imgY = schematicTop + imgPadding;
-    const imgW = CONTENT_W - imgPadding * 2;
-    const imgH = schematicH - imgPadding * 2;
+    const boxX = MARGIN_L + imgPadding;
+    const boxY = schematicTop + imgPadding;
+    const boxW = CONTENT_W - imgPadding * 2;
+    const boxH = schematicH - imgPadding * 2;
 
     try {
       const format = mapImageDataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
-      doc.addImage(mapImageDataUrl, format, imgX, imgY, imgW, imgH, undefined, 'MEDIUM');
+      const props = doc.getImageProperties(mapImageDataUrl);
+      const imgRatio = props.width / props.height;
+      const boxRatio = boxW / boxH;
+      let drawW: number;
+      let drawH: number;
+      if (imgRatio > boxRatio) {
+        // Image is wider than the box — fit to width, letterbox vertically.
+        drawW = boxW;
+        drawH = boxW / imgRatio;
+      } else {
+        // Image is taller — fit to height, pillarbox horizontally.
+        drawH = boxH;
+        drawW = boxH * imgRatio;
+      }
+      const drawX = boxX + (boxW - drawW) / 2;
+      const drawY = boxY + (boxH - drawH) / 2;
+      doc.addImage(mapImageDataUrl, format, drawX, drawY, drawW, drawH, undefined, 'MEDIUM');
     } catch {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(FONT_SMALL);

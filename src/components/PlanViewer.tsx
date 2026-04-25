@@ -87,7 +87,12 @@ export default function PlanViewer({ pdfData, initialPage, sheetPages, totalPage
         const pdfjs = await getPdfjs();
         const data = new Uint8Array(pdfData.slice(0));
         const doc = await pdfjs.getDocument({ data }).promise;
-        if (cancelled) return;
+        if (cancelled) {
+          // Race: component unmounted while we were loading. Release the
+          // doc immediately so its worker / image bitmap memory is freed.
+          try { await doc.destroy(); } catch {}
+          return;
+        }
         pdfDocRef.current = doc;
         setNumPages(doc.numPages);
         const clamped = Math.max(1, Math.min(initialPage, doc.numPages));
@@ -99,7 +104,17 @@ export default function PlanViewer({ pdfData, initialPage, sheetPages, totalPage
       }
     }
     loadPdf();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      // Free pdf.js worker + page bitmap caches when the viewer closes.
+      // Without this, every open/close of PlanViewer leaks ~10-50MB depending
+      // on plan size, accumulating across a long editing session.
+      const doc = pdfDocRef.current;
+      pdfDocRef.current = null;
+      if (doc) {
+        try { doc.destroy(); } catch {}
+      }
+    };
   }, [pdfData]);
 
   // Render current page — cancel any in-flight render before starting a new one
@@ -138,8 +153,17 @@ export default function PlanViewer({ pdfData, initialPage, sheetPages, totalPage
           if (e?.name === 'RenderingCancelledException') return;
           throw e;
         }
-        if (cancelled) return;
+        if (cancelled) {
+          // Race: page changed mid-render. Release this page's resources.
+          try { pdfPage.cleanup(); } catch {}
+          return;
+        }
         renderTaskRef.current = null;
+
+        // Release pdf.js page-level resources (image bitmaps, fonts, etc.)
+        // immediately. The canvas already holds the rendered pixels — we
+        // don't need pdf.js to keep its rendering caches around.
+        try { pdfPage.cleanup(); } catch {}
 
         // Auto-fit: calculate zoom to fit page in container
         const container = containerRef.current;
