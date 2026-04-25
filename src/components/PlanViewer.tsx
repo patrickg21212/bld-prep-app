@@ -32,7 +32,12 @@ interface Props {
   onClose: () => void;
 }
 
-const RENDER_SCALE = 1.5;
+// RENDER_SCALE was 1.5 — that produces a ~3888x2592 canvas for typical
+// 24"x36" engineering plans (= ~40MB backing store, ~80MB during double-
+// buffering). Cropping/zooming through multiple plans crashed the tab.
+// 1.0 still renders cleanly at jsPDF embed size; cropped output goes
+// straight into a JPEG-encoded composite anyway.
+const RENDER_SCALE = 1.0;
 const CROP_SIZE_DEFAULT = 400;
 const DRAG_THRESHOLD = 5;
 

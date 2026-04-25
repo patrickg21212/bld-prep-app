@@ -267,16 +267,23 @@ function MapAnnotationImpl({
       onChangeRef.current(imageDataUrl, imageDataUrl, []);
       return;
     }
-    const raf = requestAnimationFrame(() => {
-      // pixelRatio: 1 (was 2). The composite is consumed by the PDF
-      // renderer at letter size — pixelRatio 2 produced ~4x the data the
-      // PDF could display. Cuts each composite from ~5-10MB to ~1.2-2.5MB.
-      const composite = stageRef.current?.toDataURL({ pixelRatio: 1 });
+    // Heavy debounce — rapid resize/rotate/move adjustments would otherwise
+    // produce a fresh multi-MB base64 string + IndexedDB write per change.
+    // Wait for the user to settle before paying the toDataURL cost.
+    const t = setTimeout(() => {
+      // JPEG instead of PNG: jsPDF embeds JPEG more efficiently and the
+      // composite is photo-like (satellite/plans + ink overlay), not pure
+      // line-art. Cuts each composite from ~1-3MB to ~200-500KB.
+      const composite = stageRef.current?.toDataURL({
+        pixelRatio: 1,
+        mimeType: 'image/jpeg',
+        quality: 0.85,
+      });
       if (composite) {
         onChangeRef.current(composite, imageDataUrl, annotations);
       }
-    });
-    return () => cancelAnimationFrame(raf);
+    }, 350);
+    return () => clearTimeout(t);
   }, [imageDataUrl, annotations, loadedImage, drawing]);
 
   /* ---- load image from data URL ----------------------------------- */
@@ -697,7 +704,7 @@ function MapAnnotationImpl({
   const exportDataUrl = useCallback((): string | null => {
     const stage = stageRef.current;
     if (!stage) return null;
-    return stage.toDataURL({ pixelRatio: 2 });
+    return stage.toDataURL({ pixelRatio: 1.5, mimeType: 'image/jpeg', quality: 0.9 });
   }, []);
 
   // Expose export on window for parent components to call imperatively
