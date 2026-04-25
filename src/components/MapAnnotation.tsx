@@ -715,6 +715,41 @@ function MapAnnotationImpl({
     };
   }, [exportDataUrl]);
 
+  // HARD UNMOUNT CLEANUP — explicitly free GPU/canvas memory.
+  //
+  // react-konva nominally destroys the Stage when the component unmounts,
+  // but Konva's underlying canvases (one for the layer, plus drawing buffers)
+  // sit in a separate browser-managed canvas memory pool that doesn't track
+  // JS GC. Across many segment edits the pool fills and the tab gets killed
+  // by the OS even though JS heap looks fine.
+  //
+  // Forcing stage.destroy() releases Konva's internal canvases. Zeroing the
+  // loadedImage's src + dropping the decoded bitmap reference releases the
+  // image-decoder's offscreen surface. Together this drops the per-segment
+  // canvas pool footprint to ~zero on every unmount.
+  useEffect(() => {
+    return () => {
+      const stage = stageRef.current;
+      if (stage) {
+        try { stage.destroy(); } catch {}
+        stageRef.current = null;
+      }
+    };
+  }, []);
+
+  // Release the decoded image bitmap when imageDataUrl is cleared/replaced.
+  // HTMLImageElement holds a decoded bitmap in browser memory until the
+  // element itself is collected. Forcing src='' tells the decoder to drop it.
+  useEffect(() => {
+    return () => {
+      if (loadedImage) {
+        try {
+          loadedImage.src = '';
+        } catch {}
+      }
+    };
+  }, [loadedImage]);
+
   /* ---- cursor based on tool --------------------------------------- */
   const cursor = useMemo(() => {
     if (tool === 'circle') return 'crosshair';

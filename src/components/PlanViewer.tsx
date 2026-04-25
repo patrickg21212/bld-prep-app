@@ -119,6 +119,16 @@ export default function PlanViewer({ pdfData, initialPage, sheetPages, totalPage
       if (doc) {
         try { doc.destroy(); } catch {}
       }
+      // HARD CLEANUP: zero the canvas backing store. Browser canvas memory
+      // is a separate pool from JS heap — even if React unmounts the canvas
+      // element, the GPU surface stays allocated until the canvas dimensions
+      // are zeroed. Without this, every plan crop session leaks ~18MB of
+      // canvas backing store across the editing session.
+      const c = canvasRef.current;
+      if (c) {
+        c.width = 0;
+        c.height = 0;
+      }
     };
   }, [pdfData]);
 
