@@ -16,8 +16,12 @@ interface Props {
   mapRawImageDataUrl: string | null;
   mapAnnotations: AnnotationData[];
   canCopyPrevious: boolean;
-  plansData: ArrayBuffer | null;
+  // plans are no longer held in App state — they live in IndexedDB and are
+  // fetched on-demand only while the plan viewer is open. plansAvailable
+  // indicates whether plans exist for this project; getPlanBuffer fetches.
+  plansAvailable: boolean;
   plansNumPages: number;
+  getPlanBuffer: () => Promise<ArrayBuffer | null>;
   onObservationChange: (
     obsOrUpdater: SegmentObservations | ((prev: SegmentObservations) => SegmentObservations),
   ) => void;
@@ -38,8 +42,9 @@ function SegmentEditorImpl({
   mapRawImageDataUrl,
   mapAnnotations,
   canCopyPrevious,
-  plansData,
+  plansAvailable,
   plansNumPages,
+  getPlanBuffer,
   onObservationChange,
   onMapChange,
   onCopyPrevious,
@@ -47,6 +52,23 @@ function SegmentEditorImpl({
   onNavigate,
 }: Props) {
   const [showPlanViewer, setShowPlanViewer] = useState(false);
+  // Local plan buffer — held only while the viewer modal is open. Cleared
+  // on close so the multi-MB ArrayBuffer doesn't sit in memory between
+  // segment edits. Fetched from IndexedDB via getPlanBuffer().
+  const [planBuffer, setPlanBuffer] = useState<ArrayBuffer | null>(null);
+
+  const handleOpenPlanViewer = useCallback(async () => {
+    if (!plansAvailable) return;
+    const buf = await getPlanBuffer();
+    if (!buf) return;
+    setPlanBuffer(buf);
+    setShowPlanViewer(true);
+  }, [plansAvailable, getPlanBuffer]);
+
+  const handleClosePlanViewer = useCallback(() => {
+    setShowPlanViewer(false);
+    setPlanBuffer(null);
+  }, []);
   const [showMapViewer, setShowMapViewer] = useState(false);
 
   // Pass updater functions to onObservationChange so rapid-fire edits compose
@@ -105,7 +127,8 @@ function SegmentEditorImpl({
     // Draw-Ellipse mode so they can drag from one end of the pipe to the
     // other — that yields a correctly-aligned ellipse in one gesture.
     onMapChange(null, croppedDataUrl, []);
-    setShowPlanViewer(false);
+    // Modal close is handled by handleClosePlanViewer in the onCrop wrapper —
+    // it also drops the in-memory plan buffer.
   }, [onMapChange]);
 
   const handleMapCrop = useCallback((croppedDataUrl: string) => {
@@ -339,9 +362,9 @@ function SegmentEditorImpl({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
           <SectionHeader>Schematic Drawing / Map</SectionHeader>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {plansData && (
+            {plansAvailable && (
               <button
-                onClick={() => setShowPlanViewer(true)}
+                onClick={handleOpenPlanViewer}
                 style={{
                   background: segment.sheetNumber ? 'var(--accent-subtle)' : 'rgba(255,255,255,0.05)',
                   border: `1px solid ${segment.sheetNumber ? 'var(--accent)' : 'rgba(255,255,255,0.2)'}`,
@@ -394,8 +417,8 @@ function SegmentEditorImpl({
         />
       </div>
 
-      {/* PlanViewer modal */}
-      {showPlanViewer && plansData && (
+      {/* PlanViewer modal — buffer is loaded on-demand, dropped on close */}
+      {showPlanViewer && planBuffer && (
         <Suspense fallback={
           <div style={{
             position: 'fixed', inset: 0, zIndex: 100,
@@ -410,12 +433,12 @@ function SegmentEditorImpl({
             const pages = getSheetPages();
             return (
               <PlanViewer
-                pdfData={plansData}
+                pdfData={planBuffer}
                 initialPage={pages[0]}
                 sheetPages={pages.length > 1 ? pages : undefined}
                 totalPages={plansNumPages}
-                onCrop={handlePlanCrop}
-                onClose={() => setShowPlanViewer(false)}
+                onCrop={(url, x, y) => { handlePlanCrop(url, x, y); handleClosePlanViewer(); }}
+                onClose={handleClosePlanViewer}
               />
             );
           })()}

@@ -101,7 +101,13 @@ export default function App() {
   const [recentProjects, setRecentProjects] = useState<AppProject[]>([]);
   const [pendingFile, setPendingFile] = useState<PendingFile | null>(null);
   const [pendingMapping, setPendingMapping] = useState<PendingMapping | null>(null);
-  const [plansData, setPlansData] = useState<ArrayBuffer | null>(null);
+  // Plans PDF is NOT held in App state. ArrayBuffers for engineering plans
+  // can be 20-50MB and never need to be in memory unless the plan viewer is
+  // open. plansAvailable + plansFileName + plansNumPages are small metadata
+  // kept here; the actual buffer lives in IndexedDB and is fetched on-demand
+  // by SegmentEditor via getPlanBuffer. This is the architectural fix for
+  // the repeating crashes during multi-segment crop sessions.
+  const [plansAvailable, setPlansAvailable] = useState(false);
   const [plansFileName, setPlansFileName] = useState<string | null>(null);
   const [plansNumPages, setPlansNumPages] = useState(0);
   const [mappingWarnings, setMappingWarnings] = useState<MappingWarning[]>([]);
@@ -291,19 +297,19 @@ export default function App() {
   const handlePlansUpload = useCallback(async (file: File) => {
     try {
       const buffer = await file.arrayBuffer();
-      // pdf.js v3 can transfer/detach the underlying ArrayBuffer of the Uint8Array
-      // it receives. Hand it a dedicated slice so nothing else shares that buffer.
-      // React state and IndexedDB each get their own independent slices too, so a
-      // detachment in one path can never zero out the buffer the others hold.
+      // pdf.js v3 can transfer/detach the underlying ArrayBuffer. Slice once
+      // for the page-count probe, once for IndexedDB persistence. We DON'T
+      // keep the buffer in React state — SegmentEditor fetches it from IDB
+      // on-demand only while the plan viewer is open.
       const pdfjsBuffer = buffer.slice(0);
-      const stateBuffer = buffer.slice(0);
       const storageBuffer = buffer.slice(0);
 
       const lib = await loadPdfjs();
       const doc = await lib.getDocument({ data: new Uint8Array(pdfjsBuffer) }).promise;
       const numPages = doc.numPages;
+      try { await doc.destroy(); } catch {}
 
-      setPlansData(stateBuffer);
+      setPlansAvailable(true);
       setPlansFileName(file.name);
       setPlansNumPages(numPages);
 
@@ -426,6 +432,19 @@ export default function App() {
     // segment gets its image back when the user returns to it.
     setMapData(prev => ({ ...prev, [segment.repairNumber]: ms }));
     setScreen('editor');
+  }, []);
+
+  // On-demand fetcher for the plans PDF buffer. Plans live in IndexedDB
+  // only — never in App state — so SegmentEditor calls this when the user
+  // clicks "Crop from Plans" and drops the buffer reference when done.
+  // Two slices: one for pdf.js inside PlanViewer (which may detach),
+  // and one returned to the caller for any other consumer.
+  const getPlanBuffer = useCallback(async (): Promise<ArrayBuffer | null> => {
+    const proj = projectRef.current;
+    if (!proj) return null;
+    const plans = await getPlans(proj.id);
+    if (!plans?.pdfData) return null;
+    return plans.pdfData.slice(0);
   }, []);
 
   // Hydrate map images from IndexedDB for all selected segments before
@@ -552,16 +571,15 @@ export default function App() {
         };
       }
     }
-    // Load saved plans
+    // Load saved plans metadata — the actual buffer stays in IDB, fetched
+    // on demand when the plan viewer opens.
     const plans = await getPlans(proj.id);
     if (plans) {
-      // Slice the buffer coming out of IndexedDB so the copy in React state is
-      // independent of any downstream pdf.js consumer that might detach it.
-      setPlansData(plans.pdfData.slice(0));
+      setPlansAvailable(true);
       setPlansFileName(plans.fileName);
       setPlansNumPages(plans.numPages);
     } else {
-      setPlansData(null);
+      setPlansAvailable(false);
       setPlansFileName(null);
       setPlansNumPages(0);
     }
@@ -751,8 +769,9 @@ export default function App() {
             mapRawImageDataUrl={currentMap.rawImageDataUrl}
             mapAnnotations={currentMap.annotations}
             canCopyPrevious={selectedSegmentIndex > 0}
-            plansData={plansData}
+            plansAvailable={plansAvailable}
             plansNumPages={plansNumPages}
+            getPlanBuffer={getPlanBuffer}
             onObservationChange={(obs) => handleObservationChange(currentSegmentId, obs)}
             onMapChange={(compositeUrl, rawUrl, anns) => handleMapChange(currentSegmentId, compositeUrl, rawUrl, anns)}
             onCopyPrevious={handleCopyPrevious}
